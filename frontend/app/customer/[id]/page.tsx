@@ -19,6 +19,12 @@ import {
   LinkedProjectCard,
   ProjectMeeting,
 } from "@/lib/api";
+import {
+  hasCompletedSessionEvidence,
+  hasViewerActivity,
+  getTimedMeetingStatus,
+  timedMeetingStatusLabel,
+} from "@/lib/meetingStatus";
 
 function safeProjects(projects: unknown): ProjectMeeting[] {
   return Array.isArray(projects) ? (projects as ProjectMeeting[]) : [];
@@ -726,7 +732,7 @@ export default function CustomerDetailsPage() {
   const customerId = Number(params?.id);
 
   const scopedRoles = useMemo(
-    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
+    () => new Set<string>(),
     [],
   );
   const restrictProjectsForRole = Boolean(
@@ -810,6 +816,7 @@ export default function CustomerDetailsPage() {
     "summary" | "events" | "feedback"
   >("summary");
   const [isMobileView, setIsMobileView] = useState(false);
+  const [statusClock, setStatusClock] = useState(() => Date.now());
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 768px)");
@@ -823,6 +830,11 @@ export default function CustomerDetailsPage() {
 
     media.addListener(update);
     return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setStatusClock(Date.now()), 30000);
+    return () => window.clearInterval(id);
   }, []);
 
   const showSuccess = useCallback((msg: string) => {
@@ -935,15 +947,105 @@ export default function CustomerDetailsPage() {
   const publicLink = latestLink
     ? CustomerProjectLinkAPI.publicUrl(latestLink.public_token)
     : "";
+  const getMeetingStatusLabel = (meeting?: ProjectMeeting | null) => {
+    if (!meeting) return "";
+    const status = getTimedMeetingStatus({
+      meetingDate: meeting.meeting_date,
+      meetingTime: meeting.meeting_time,
+      hasSession:
+        Boolean(meeting.has_session_link) ||
+        (meeting.session_link_count || 0) > 0,
+      hasViewerActivity: hasViewerActivity({
+        joinees: meeting.latest_session_joinees,
+        eventCount: meeting.latest_session_event_count,
+      }),
+      completedEvidence: hasCompletedSessionEvidence({
+        status: meeting.latest_session_status,
+        startedAt: meeting.latest_session_started_at,
+        endedAt: meeting.latest_session_ended_at,
+        joinees: meeting.latest_session_joinees,
+        eventCount: meeting.latest_session_event_count,
+      }),
+    });
+    return timedMeetingStatusLabel(status);
+  };
+  const getSessionLinkTimingLabel = (
+    row: CustomerSessionLink,
+    meeting?: ProjectMeeting | null,
+  ) => {
+    const meetingDate = meeting?.meeting_date || row.meeting_date;
+    const meetingTime = meeting?.meeting_time || row.meeting_time;
+    if (!meetingDate) return "";
+
+    const status = getTimedMeetingStatus({
+      meetingDate,
+      meetingTime,
+      hasSession: true,
+      hasViewerActivity: hasViewerActivity({
+        joinees: row.joinees,
+        eventCount: row.event_count,
+      }),
+      completedEvidence: hasCompletedSessionEvidence({
+        status: row.status,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+        joinees: row.joinees,
+        eventCount: row.event_count,
+      }),
+    });
+    return timedMeetingStatusLabel(status);
+  };
 
   const today = useMemo(() => new Date().toISOString().split("T")[0], []);
   const upcomingMeetings = useMemo(
-    () => meetings.filter((m) => m.meeting_date >= today),
-    [meetings, today],
+    () => {
+      void statusClock;
+      return meetings.filter((m) => {
+        const status = getTimedMeetingStatus({
+          meetingDate: m.meeting_date,
+          meetingTime: m.meeting_time,
+          hasSession: Boolean(m.has_session_link) || (m.session_link_count || 0) > 0,
+          hasViewerActivity: hasViewerActivity({
+            joinees: m.latest_session_joinees,
+            eventCount: m.latest_session_event_count,
+          }),
+          completedEvidence: hasCompletedSessionEvidence({
+            status: m.latest_session_status,
+            startedAt: m.latest_session_started_at,
+            endedAt: m.latest_session_ended_at,
+            joinees: m.latest_session_joinees,
+            eventCount: m.latest_session_event_count,
+          }),
+        });
+        return status === "scheduled" || status === "live";
+      });
+    },
+    [meetings, statusClock],
   );
   const doneMeetings = useMemo(
-    () => meetings.filter((m) => m.meeting_date < today),
-    [meetings, today],
+    () => {
+      void statusClock;
+      return meetings.filter((m) => {
+        const status = getTimedMeetingStatus({
+          meetingDate: m.meeting_date,
+          meetingTime: m.meeting_time,
+          hasSession: Boolean(m.has_session_link) || (m.session_link_count || 0) > 0,
+          hasViewerActivity: hasViewerActivity({
+            joinees: m.latest_session_joinees,
+            eventCount: m.latest_session_event_count,
+          }),
+          completedEvidence: hasCompletedSessionEvidence({
+            status: m.latest_session_status,
+            startedAt: m.latest_session_started_at,
+            endedAt: m.latest_session_ended_at,
+            joinees: m.latest_session_joinees,
+            eventCount: m.latest_session_event_count,
+          }),
+        });
+        return status === "completed";
+      });
+    },
+    [meetings, statusClock],
   );
   const orderedMeetings = useMemo(
     () =>
@@ -2292,6 +2394,24 @@ export default function CustomerDetailsPage() {
                   analyticsLoadingToken === row.session_token;
                 const summaryBusy = summaryLoadingToken === row.session_token;
                 const endingBusy = endingLoadingToken === row.session_token;
+                const matchingMeeting = meetings.find(
+                  (meeting) =>
+                    normalizeProjectName(meeting.project_name) ===
+                    normalizeProjectName(row.project_name),
+                );
+                const timingLabel = getSessionLinkTimingLabel(
+                  row,
+                  matchingMeeting,
+                );
+                const selfViewOnly =
+                  Boolean(row.self_view_url) &&
+                  (row.raw_response?.mode === "self_view" ||
+                    row.self_view_url === row.viewer_link ||
+                    row.self_view_url === row.presenter_link);
+                const visibleViewerLink = selfViewOnly ? "" : row.viewer_link;
+                const visibleSelfViewLink =
+                  row.self_view_url ||
+                  (selfViewOnly ? row.viewer_link || row.presenter_link : "");
 
                 return (
                   <div
@@ -2320,14 +2440,37 @@ export default function CustomerDetailsPage() {
                       className="text-xs"
                       style={{ color: "var(--color-text-muted)" }}
                     >
-                      Viewer Link: {row.viewer_link || "-"}
+                      Viewer Link: {visibleViewerLink || "-"}
                     </p>
                     <p
                       className="text-xs"
                       style={{ color: "var(--color-text-muted)" }}
                     >
-                      Self-View Link: {row.self_view_url || "-"}
+                      Self-View Link: {visibleSelfViewLink || "-"}
                     </p>
+                    {timingLabel && (
+                      <span
+                        className="badge mt-2"
+                        style={{
+                          background:
+                            timingLabel === "Live"
+                              ? "rgba(124,58,237,0.14)"
+                              : timingLabel === "Completed"
+                                ? "rgba(107,114,128,0.14)"
+                              : "#eff6ff",
+                          color:
+                            timingLabel === "Live"
+                              ? "#5b21b6"
+                              : timingLabel === "Completed"
+                                ? "#374151"
+                              : "#1d4ed8",
+                          border: "1px solid rgba(148,163,184,0.35)",
+                          fontSize: "0.7rem",
+                        }}
+                      >
+                        {timingLabel}
+                      </span>
+                    )}
                     <div className="mt-2 flex gap-2 flex-wrap">
                       <button
                         className="btn btn-primary"
@@ -2350,18 +2493,22 @@ export default function CustomerDetailsPage() {
                       >
                         {endingBusy ? "Ending..." : "End Session + Summary"}
                       </button>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => window.open(row.viewer_link, "_blank")}
-                      >
-                        Open Viewer Link
-                      </button>
-                      {row.self_view_url && (
+                      {visibleViewerLink && (
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() =>
+                            window.open(visibleViewerLink, "_blank")
+                          }
+                        >
+                          Open Viewer Link
+                        </button>
+                      )}
+                      {visibleSelfViewLink && (
                         <>
                           <button
                             className="btn btn-ghost"
                             onClick={() =>
-                              window.open(row.self_view_url, "_blank")
+                              window.open(visibleSelfViewLink, "_blank")
                             }
                           >
                             Open Self-View Link
@@ -2411,6 +2558,7 @@ export default function CustomerDetailsPage() {
                 {orderedMeetings.map((m) => {
                   const isEditing =
                     editingMeeting?.project_name === m.project_name;
+                  const timingLabel = getMeetingStatusLabel(m);
                   return (
                     <div
                       key={m.project_name}
@@ -2433,6 +2581,27 @@ export default function CustomerDetailsPage() {
                         Meeting:{" "}
                         {formatDisplayMeeting(m.meeting_date, m.meeting_time)}
                       </p>
+                      <span
+                        className="badge mt-1"
+                        style={{
+                          background:
+                            timingLabel === "Live"
+                              ? "rgba(124,58,237,0.14)"
+                              : timingLabel === "Completed"
+                                ? "rgba(107,114,128,0.14)"
+                              : "#eff6ff",
+                          color:
+                            timingLabel === "Live"
+                              ? "#5b21b6"
+                              : timingLabel === "Completed"
+                                ? "#374151"
+                              : "#1d4ed8",
+                          border: "1px solid rgba(148,163,184,0.35)",
+                          fontSize: "0.7rem",
+                        }}
+                      >
+                        {timingLabel}
+                      </span>
                       {(m.created_by_name || m.assigned_to_user_name) && (
                         <p
                           className="text-xs"

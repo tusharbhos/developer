@@ -20,6 +20,12 @@ import {
   LinkedProjectCard,
   ProjectMeeting,
 } from "@/lib/api";
+import {
+  hasCompletedSessionEvidence,
+  hasViewerActivity,
+  getTimedMeetingStatus,
+  timedMeetingStatusLabel,
+} from "@/lib/meetingStatus";
 
 const CUSTOMER_LIST_CACHE_KEY = "customers:list:v1";
 
@@ -100,43 +106,69 @@ function StatusBadge({ status }: { status: Customer["status"] }) {
   return <span className={MAP[status] ?? MAP.active}>{LABELS[status]}</span>;
 }
 
+const CUSTOMER_PROJECT_STATUS_STYLES: Record<
+  string,
+  { bg: string; text: string; border: string }
+> = {
+  Requested: {
+    bg: "rgba(249,115,22,0.12)",
+    text: "#7a3500",
+    border: "rgba(249,115,22,0.32)",
+  },
+  Scheduled: {
+    bg: "rgba(59,130,246,0.16)",
+    text: "#1d4ed8",
+    border: "rgba(59,130,246,0.38)",
+  },
+  Live: {
+    bg: "rgba(239,68,68,0.14)",
+    text: "#b91c1c",
+    border: "rgba(239,68,68,0.34)",
+  },
+  Completed: {
+    bg: "rgba(107,114,128,0.14)",
+    text: "#374151",
+    border: "rgba(107,114,128,0.34)",
+  },
+  "Site Visit": {
+    bg: "rgba(34,197,94,0.16)",
+    text: "#166534",
+    border: "rgba(34,197,94,0.36)",
+  },
+};
+
+function getCustomerProjectStatus(project: ProjectMeeting) {
+  const hasSession =
+    Boolean(project.has_session_link) || (project.session_link_count || 0) > 0;
+  const timedStatus = getTimedMeetingStatus({
+    meetingDate: project.meeting_date,
+    meetingTime: project.meeting_time,
+    hasSession,
+    hasViewerActivity: hasViewerActivity({
+      joinees: project.latest_session_joinees,
+      eventCount: project.latest_session_event_count,
+    }),
+    completedEvidence: hasCompletedSessionEvidence({
+      status: project.latest_session_status,
+      startedAt: project.latest_session_started_at,
+      endedAt: project.latest_session_ended_at,
+      joinees: project.latest_session_joinees,
+      eventCount: project.latest_session_event_count,
+    }),
+  });
+
+  if (timedStatus === "scheduled" && !hasSession) return "Requested";
+  return timedMeetingStatusLabel(timedStatus);
+}
+
 function MeetingStats({ projects }: { projects?: unknown }) {
   const list = safeProjects(projects);
-  const today = new Date().toISOString().split("T")[0];
-  const now = new Date();
 
-  const toDateTime = (meetingDate?: string, meetingTime?: string) => {
-    if (!meetingDate) return null;
-    const time = (meetingTime || "00:00").slice(0, 5);
-    const dt = new Date(`${meetingDate}T${time}:00`);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  };
-
-  const isUpcomingMeeting = (p: ProjectMeeting) => {
-    if (!p.meeting_date) return false;
-    if (p.meeting_date > today) return true;
-    if (p.meeting_date < today) return false;
-    const dt = toDateTime(p.meeting_date, p.meeting_time);
-    return dt ? dt > now : false;
-  };
-
-  const isPastOrClosedMeeting = (p: ProjectMeeting) => {
-    if (!p.meeting_date) return false;
-    if (p.meeting_date < today) return true;
-    if (p.meeting_date > today) return false;
-    const dt = toDateTime(p.meeting_date, p.meeting_time);
-    return dt ? dt <= now : false;
-  };
-
-  const hasSession = (p: ProjectMeeting) =>
-    Boolean(p.has_session_link) || (p.session_link_count || 0) > 0;
-
-  const upcoming = list.filter(isUpcomingMeeting).length;
-  const done = list.filter(
-    (p) => isPastOrClosedMeeting(p) && hasSession(p),
+  const upcoming = list.filter(
+    (p) => getCustomerProjectStatus(p) === "Scheduled",
   ).length;
-  const missed = list.filter(
-    (p) => isPastOrClosedMeeting(p) && !hasSession(p),
+  const done = list.filter(
+    (p) => getCustomerProjectStatus(p) === "Completed",
   ).length;
 
   if (!list.length)
@@ -144,26 +176,13 @@ function MeetingStats({ projects }: { projects?: unknown }) {
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      {missed > 0 && (
-        <span
-          className="badge"
-          style={{
-            background: "#fef2f2",
-            color: "#b91c1c",
-            border: "1px solid #fecaca",
-            fontSize: "0.63rem",
-          }}
-        >
-          ❌ {missed} missed
-        </span>
-      )}
       {upcoming > 0 && (
         <span
           className="badge"
           style={{
-            background: "var(--orange-100)",
-            color: "var(--orange-700)",
-            border: "1px solid var(--orange-200)",
+            background: CUSTOMER_PROJECT_STATUS_STYLES.Scheduled.bg,
+            color: CUSTOMER_PROJECT_STATUS_STYLES.Scheduled.text,
+            border: `1px solid ${CUSTOMER_PROJECT_STATUS_STYLES.Scheduled.border}`,
             fontSize: "0.63rem",
           }}
         >
@@ -174,9 +193,9 @@ function MeetingStats({ projects }: { projects?: unknown }) {
         <span
           className="badge"
           style={{
-            background: "#ecfdf5",
-            color: "#047857",
-            border: "1px solid #a7f3d0",
+            background: CUSTOMER_PROJECT_STATUS_STYLES.Completed.bg,
+            color: CUSTOMER_PROJECT_STATUS_STYLES.Completed.text,
+            border: `1px solid ${CUSTOMER_PROJECT_STATUS_STYLES.Completed.border}`,
             fontSize: "0.63rem",
           }}
         >
@@ -190,70 +209,9 @@ function MeetingStats({ projects }: { projects?: unknown }) {
 function ProjectsCell({ projects }: { projects?: unknown }) {
   const list = safeProjects(projects);
   const today = new Date().toISOString().split("T")[0];
-  const now = new Date();
   const ordered = [...list].sort((left, right) =>
     compareMeetingLikeItems(left, right, today),
   );
-
-  const getDateTime = (meetingDate?: string, meetingTime?: string) => {
-    if (!meetingDate) return null;
-    const time = (meetingTime || "00:00").slice(0, 5);
-    const dt = new Date(`${meetingDate}T${time}:00`);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  };
-
-  const getProjectStatus = (p: ProjectMeeting) => {
-    const hasSession =
-      Boolean(p.has_session_link) || (p.session_link_count || 0) > 0;
-    if (!p.meeting_date) return "Requested";
-
-    const dt = getDateTime(p.meeting_date, p.meeting_time);
-    const isSameDay = p.meeting_date === today;
-
-    if (p.meeting_date > today) return "Scheduled";
-
-    if (isSameDay && dt) {
-      const diffMs = Math.abs(now.getTime() - dt.getTime());
-      if (diffMs <= 90 * 60 * 1000) return "Live";
-      if (dt < now) return hasSession ? "Site Visit" : "Complete";
-      return "Scheduled";
-    }
-
-    if (p.meeting_date < today) return hasSession ? "Site Visit" : "Complete";
-
-    return "Scheduled";
-  };
-
-  const statusStyles: Record<
-    string,
-    { bg: string; text: string; border: string }
-  > = {
-    Requested: {
-      bg: "var(--orange-50)",
-      text: "var(--orange-700)",
-      border: "var(--orange-100)",
-    },
-    Scheduled: {
-      bg: "#eff6ff",
-      text: "#1d4ed8",
-      border: "#bfdbfe",
-    },
-    Live: {
-      bg: "#fef2f2",
-      text: "#b91c1c",
-      border: "#fecaca",
-    },
-    Complete: {
-      bg: "var(--slate-50)",
-      text: "var(--color-text-hint)",
-      border: "var(--slate-200)",
-    },
-    "Site Visit": {
-      bg: "#ecfdf5",
-      text: "#047857",
-      border: "#a7f3d0",
-    },
-  };
 
   if (!list.length)
     return <span style={{ color: "var(--color-text-hint)" }}>—</span>;
@@ -271,8 +229,10 @@ function ProjectsCell({ projects }: { projects?: unknown }) {
       }}
     >
       {ordered.map((p, i) => {
-        const status = getProjectStatus(p);
-        const style = statusStyles[status] || statusStyles.Scheduled;
+        const status = getCustomerProjectStatus(p);
+        const style =
+          CUSTOMER_PROJECT_STATUS_STYLES[status] ||
+          CUSTOMER_PROJECT_STATUS_STYLES.Scheduled;
         return (
           <div
             key={i}
@@ -1070,13 +1030,19 @@ export default function CustomerPage() {
   const [sessionByCustomer, setSessionByCustomer] = useState<
     Record<number, CustomerSessionLink[]>
   >({});
+  const [statusClock, setStatusClock] = useState(() => Date.now());
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/");
   }, [isAuthenticated, isLoading, router]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => setStatusClock(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const projectScopedRoles = useState(
-    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
+    () => new Set<string>(),
   )[0];
   const restrictProjectsForRole = Boolean(
     user?.role && projectScopedRoles.has(user.role),
@@ -1271,63 +1237,43 @@ export default function CustomerPage() {
 
   const today = new Date().toISOString().split("T")[0];
   const meetingStats = useMemo(() => {
+    void statusClock;
     const allProjects = visibleCustomers.flatMap((c) =>
       safeProjects(c.projects),
     );
 
-    const parseDateTime = (meetingDate?: string, meetingTime?: string) => {
-      if (!meetingDate) return null;
-      const time = (meetingTime || "00:00").slice(0, 5);
-      const dateTime = new Date(`${meetingDate}T${time}:00`);
-      if (Number.isNaN(dateTime.getTime())) return null;
-      return dateTime;
-    };
-
-    const now = new Date();
+    const hasSession = (p: ProjectMeeting) =>
+      Boolean(p.has_session_link) || (p.session_link_count || 0) > 0;
     const done = allProjects.filter(
-      (p) => (p.meeting_date || "") < today,
+      (p) => getCustomerProjectStatus(p) === "Completed",
     ).length;
     const upcoming = allProjects.filter(
-      (p) => (p.meeting_date || "") > today,
+      (p) => getCustomerProjectStatus(p) === "Scheduled",
     ).length;
-    const live = allProjects.filter((p) => {
-      const dt = parseDateTime(p.meeting_date, p.meeting_time);
-      if (!dt) return false;
-      const diffMs = Math.abs(now.getTime() - dt.getTime());
-      return p.meeting_date === today && diffMs <= 90 * 60 * 1000;
-    }).length;
+    const live = allProjects.filter(
+      (p) => getCustomerProjectStatus(p) === "Live",
+    ).length;
 
-    const sessionCreated = allProjects.filter(
-      (p) => Boolean(p.has_session_link) || (p.session_link_count || 0) > 0,
-    ).length;
+    const sessionCreated = allProjects.filter(hasSession).length;
 
     const visitDone = allProjects.filter(
-      (p) =>
-        (p.meeting_date || "") < today &&
-        (Boolean(p.has_session_link) || (p.session_link_count || 0) > 0),
+      (p) => getCustomerProjectStatus(p) === "Completed" && hasSession(p),
     ).length;
 
-    const missed = allProjects.filter(
-      (p) =>
-        (p.meeting_date || "") < today &&
-        !Boolean(p.has_session_link) &&
-        (p.session_link_count || 0) === 0,
-    ).length;
 
     const requested = allProjects.filter(
-      (p) => !Boolean(p.has_session_link) && (p.session_link_count || 0) === 0,
+      (p) => getCustomerProjectStatus(p) === "Requested",
     ).length;
 
     return {
       done,
-      missed,
       sessionCreated,
       live,
       visitDone,
       requested,
       upcoming,
     };
-  }, [today, visibleCustomers]);
+  }, [visibleCustomers, statusClock]);
 
   if (isLoading)
     return (
@@ -1338,14 +1284,7 @@ export default function CustomerPage() {
   if (!isAuthenticated) return null;
   const isAdmin = user?.role === "admin";
   const canSeeCreatedBy = isAdmin || Boolean(user?.is_company_owner);
-  const addCustomerRestrictedRoles = new Set([
-    "developer_super_admin",
-    "sourcing_admin",
-    "sales_user",
-  ]);
-  const canAddCustomer = !(
-    user?.role && addCustomerRestrictedRoles.has(user.role)
-  );
+  const canAddCustomer = true;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -1400,37 +1339,32 @@ export default function CustomerPage() {
                 {
                   val: meetingStats.done,
                   label: "Done",
-                  color: "var(--green-600)",
-                },
-                {
-                  val: meetingStats.missed,
-                  label: "Missed",
-                  color: "var(--red-600)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES.Completed.text,
                 },
                 {
                   val: meetingStats.sessionCreated,
                   label: "Sessions",
-                  color: "var(--orange-600)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES.Scheduled.text,
                 },
                 {
                   val: meetingStats.live,
                   label: "Live",
-                  color: "var(--purple-600)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES.Live.text,
                 },
                 {
                   val: meetingStats.visitDone,
                   label: "Visit Done",
-                  color: "var(--green-700)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES["Site Visit"].text,
                 },
                 {
                   val: meetingStats.requested,
                   label: "Requested",
-                  color: "var(--orange-700)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES.Requested.text,
                 },
                 {
                   val: meetingStats.upcoming,
                   label: "Upcoming",
-                  color: "var(--navy-500)",
+                  color: CUSTOMER_PROJECT_STATUS_STYLES.Scheduled.text,
                 },
               ].map((s) => (
                 <div

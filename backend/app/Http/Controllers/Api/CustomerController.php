@@ -416,7 +416,7 @@ class CustomerController extends Controller
 
     private function isCalendarProjectScopedRole($user): bool
     {
-        return in_array($user->role, ['developer_super_admin', 'sourcing_admin', 'sales_user'], true);
+        return false;
     }
 
     private function allowedProjectMap($user): array
@@ -458,7 +458,7 @@ class CustomerController extends Controller
         }
 
         $rows = CustomerSessionLink::query()
-            ->select('id', 'customer_id', 'project_name', 'created_at')
+            ->select('id', 'customer_id', 'project_name', 'created_at', 'raw_response')
             ->whereIn('customer_id', $customerIds)
             ->orderByDesc('created_at')
             ->get();
@@ -479,6 +479,11 @@ class CustomerController extends Controller
                     'session_link_count' => 0,
                     'latest_session_link_id' => $row->id,
                     'latest_session_created_at' => $row->created_at?->toDateTimeString(),
+                    'latest_session_status' => $row->status,
+                    'latest_session_started_at' => $row->started_at,
+                    'latest_session_ended_at' => $row->ended_at,
+                    'latest_session_joinees' => $row->joinees,
+                    'latest_session_event_count' => $row->event_count,
                 ];
             }
 
@@ -499,6 +504,11 @@ class CustomerController extends Controller
             $row['session_link_count'] = (int) ($summary['session_link_count'] ?? 0);
             $row['latest_session_link_id'] = $summary['latest_session_link_id'] ?? null;
             $row['latest_session_created_at'] = $summary['latest_session_created_at'] ?? null;
+            $row['latest_session_status'] = $summary['latest_session_status'] ?? null;
+            $row['latest_session_started_at'] = $summary['latest_session_started_at'] ?? null;
+            $row['latest_session_ended_at'] = $summary['latest_session_ended_at'] ?? null;
+            $row['latest_session_joinees'] = (int) ($summary['latest_session_joinees'] ?? 0);
+            $row['latest_session_event_count'] = (int) ($summary['latest_session_event_count'] ?? 0);
 
             return $row;
         }, $projects));
@@ -523,6 +533,11 @@ class CustomerController extends Controller
             'session_link_count' => 0,
             'latest_session_link_id' => null,
             'latest_session_created_at' => null,
+            'latest_session_status' => null,
+            'latest_session_started_at' => null,
+            'latest_session_ended_at' => null,
+            'latest_session_joinees' => 0,
+            'latest_session_event_count' => 0,
         ];
     }
 

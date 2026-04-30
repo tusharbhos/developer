@@ -131,12 +131,24 @@ async function apiFetch<T>(
   const data = parsed as Record<string, unknown>;
 
   if (!res.ok) {
+    const providerEndpoints = Array.isArray(data?.tried_provider_endpoints)
+      ? ` Tried provider endpoints: ${(data.tried_provider_endpoints as unknown[])
+          .map((item) => String(item))
+          .join(", ")}`
+      : "";
+    const providerEndpoint =
+      typeof data?.provider_endpoint === "string"
+        ? ` Provider endpoint: ${data.provider_endpoint}.`
+        : "";
+
     // Throw structured error so callers can read .errors / .message
     const error: ApiError = {
       status: res.status,
       ...(typeof data === "object" && data !== null ? data : {}),
       message:
         (typeof data?.message === "string" && data.message) ||
+        (typeof data?.detail === "string" &&
+          `${data.detail}.${providerEndpoint}${providerEndpoints}`) ||
         `Request failed with status ${res.status}`,
     };
     throw error;
@@ -174,27 +186,6 @@ export interface ApiUser {
   is_company_owner?: boolean;
   is_active: boolean;
   email_verified: boolean;
-  experience_level?: string;
-  primary_market?: string[];
-  budget_segments?: string[];
-  max_ticket_size?: string | number;
-  buyer_types?: string[];
-  project_preference?: string[];
-  micro_markets?: string;
-  sell_cities?: string;
-  avg_leads_per_month?: number;
-  avg_site_visits_per_month?: number;
-  avg_closures_per_month?: number;
-  selling_style?: string[];
-  activation_intent?:
-    | "immediately"
-    | "in_7_days"
-    | "in_15_plus_days"
-    | "exploring";
-  commitment_signal?: boolean;
-  available_slots?: string[];
-  channels_used?: string[];
-  onboarding_step?: number;
   unique_key?: string;
   created_at: string;
 }
@@ -209,6 +200,11 @@ export interface ProjectMeeting {
   session_link_count?: number;
   latest_session_link_id?: number | null;
   latest_session_created_at?: string | null;
+  latest_session_status?: string | null;
+  latest_session_started_at?: string | null;
+  latest_session_ended_at?: string | null;
+  latest_session_joinees?: number;
+  latest_session_event_count?: number;
   created_by_id?: number;
   created_by_name?: string;
   updated_by_id?: number;
@@ -263,7 +259,6 @@ export interface LinkedProjectCard {
   possession?: string;
   status?: string;
   units_left?: number;
-  mask_identity?: boolean | number;
   meeting_date?: string;
   meeting_time?: string;
   project_key?: string;
@@ -279,7 +274,6 @@ export interface CustomerProjectLink {
   public_token: string;
   selected_projects: LinkedProjectCard[];
   liked_projects?: LinkedProjectCard[];
-  mask_identity?: boolean;
   card_attempts?: Record<string, number>;
   locked_project_keys?: string[];
   expires_at?: string;
@@ -311,7 +305,6 @@ export interface PublicCustomerProjectLink {
   selected_projects: LinkedProjectCard[];
   liked_projects?: LinkedProjectCard[];
   self_view_links?: PublicSelfViewLink[];
-  mask_identity?: boolean;
   expires_at?: string;
   is_disabled?: boolean;
   max_attempts_per_card?: number;
@@ -360,11 +353,17 @@ export interface CustomerSessionLink {
   session_code?: string;
   join_code?: string;
   status?: string;
+  started_at?: string | null;
   ended_at?: string | null;
+  joinees?: number;
+  event_count?: number;
   presenter_link: string;
   viewer_link: string;
   self_view_url?: string;
   self_view_expires_at?: string;
+  meeting_date?: string;
+  meeting_time?: string;
+  raw_response?: Record<string, unknown>;
   expires_at?: string;
   created_at: string;
 }
@@ -473,21 +472,6 @@ export interface ProfileUpdatePayload {
   phone?: string;
   city?: string;
   address?: string;
-  experience_level?: string;
-  primary_market?: string[];
-  budget_segments?: string[];
-  max_ticket_size?: number;
-  buyer_types?: string[];
-  project_preference?: string[];
-  micro_markets?: string;
-  sell_cities?: string;
-  avg_leads_per_month?: number;
-  avg_site_visits_per_month?: number;
-  avg_closures_per_month?: number;
-  selling_style?: string[];
-  available_slots?: string[];
-  channels_used?: string[];
-  onboarding_step?: number;
   password?: string;
   password_confirmation?: string;
 }
@@ -604,25 +588,7 @@ export const AdminAPI = {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  COMPANY USER API
 // ══════════════════════════════════════════════════════════════════════════════
-
-export interface CompanyUser {
-  id: number;
-  company_id?: number;
-  company_name?: string;
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  is_company_owner?: boolean;
-  role?: string;
-  is_active: boolean;
-  created_at: string;
-  deleted_at?: string | null;
-  deleted_by?: number | null;
-  deleted_by_name?: string | null;
-}
 
 export interface UserListResponse<T> {
   data: T[];
@@ -630,69 +596,6 @@ export interface UserListResponse<T> {
   deleted_data?: T[];
   deleted_total?: number;
 }
-
-export interface CreateCompanyUserPayload {
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  password: string;
-  password_confirmation: string;
-  is_active?: boolean;
-}
-
-export interface UpdateCompanyUserPayload {
-  name?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  is_active?: boolean;
-  password?: string;
-  password_confirmation?: string;
-}
-
-export const CompanyUserAPI = {
-  list: (search?: string, isActive?: boolean) => {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (typeof isActive === "boolean")
-      params.set("is_active", String(isActive));
-    const qs = params.toString() ? `?${params}` : "";
-    return apiFetch<UserListResponse<CompanyUser>>(`/company-users${qs}`);
-  },
-
-  get: (id: number) => apiFetch<{ data: CompanyUser }>(`/company-users/${id}`),
-
-  create: (payload: CreateCompanyUserPayload) =>
-    apiFetch<{ message: string; data: CompanyUser }>("/company-users", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  update: (id: number, payload: UpdateCompanyUserPayload) =>
-    apiFetch<{ message: string; data: CompanyUser }>(`/company-users/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
-
-  delete: (id: number) =>
-    apiFetch<{ message: string }>(`/company-users/${id}`, {
-      method: "DELETE",
-    }),
-
-  restore: (id: number) =>
-    apiFetch<{ message: string; data: CompanyUser }>(
-      `/company-users/${id}/restore`,
-      {
-        method: "POST",
-      },
-    ),
-
-  forceDelete: (id: number) =>
-    apiFetch<{ message: string }>(`/company-users/${id}/force-delete`, {
-      method: "DELETE",
-    }),
-};
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  DEVELOPER USER API
@@ -1056,7 +959,6 @@ export const CustomerProjectLinkAPI = {
   create: (data: {
     customer_id: number;
     selected_projects: LinkedProjectCard[];
-    mask_identity?: boolean;
   }) =>
     apiFetch<{ message: string; data: CustomerProjectLink }>(
       "/customer-project-links",
@@ -1157,6 +1059,7 @@ export const CustomerSessionLinkAPI = {
       meeting_time: string;
       expires_in_hours?: number;
       frontend_url?: string;
+      calendar_visible?: boolean;
     },
   ) =>
     apiFetch<{

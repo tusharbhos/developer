@@ -21,6 +21,7 @@ import {
   formatDisplayDate,
   formatDisplayDateTime,
 } from "@/lib/dateTime";
+import { getPresentationIdForProject } from "@/lib/presentationIds";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   "under construction": { bg: "rgba(249,115,22,0.12)", text: "#b47a00" },
@@ -65,60 +66,8 @@ const TIME_SLOTS = Array.from({ length: 29 }, (_, i) => {
   return { val, label: fmt12(val) };
 });
 
-const PROJECT_PRESENTATION_ID_MAP: Record<string, string> = {
-  "the altius": "PRS-6896775B",
-  altius: "PRS-6896775B",
-  "gagan myra": "PRS-6A12987E",
-  "gagan myra 02": "PRS-6A12987E",
-  samsara: "PRS-44673A56",
-  nova: "PRS-149E2CAE",
-  "nova residency": "PRS-149E2CAE",
-  "palladio la viento": "PRS-29E21018",
-  laviento: "PRS-29E21018",
-  "24k altura": "PRS-DB148E97",
-  "24k manor": "PRS-23B7C2DD",
-  "spring shire": "PRS-2F1B5847",
-  "balmora hillside": "PRS-2F39B888",
-  "1 presidential by sereno": "PRS-C84C75BF",
-  "1 presidential by now realty": "PRS-C84C75BF",
-  "qrious by life republic": "PRS-C21ABB08",
-  "rose paradise": "PRS-9D6DA952",
-  "little earth": "PRS-5B111244",
-  "supreme towers": "PRS-6FC1D35C",
-  "supreme villagio": "PRS-75735486",
-  "ganga avanta": "PRS-40BCAA20",
-  "ganga platinum": "PRS-4AC12033",
-  "ganga imperia": "PRS-99BACD41",
-  "gera joy on the tree tops": "PRS-5D1F5E0A",
-  "nyati equinox": "PRS-40058D8F",
-  "nyati evoque": "PRS-7CC7F801",
-  "nyati esteban": "PRS-72ABC1A3",
-  "jade skyline": "PRS-00208A4B",
-  citadel: "PRS-E2B1B10B",
-  ivylush: "PRS-D3258DC1",
-  highgardens: "PRS-A4E50285",
-  cove: "PRS-C8B63587",
-  athashri: "PRS-6B962C8A",
-  verdant: "PRS-5104BA08",
-  "golfland villas": "PRS-E85984DC",
-  "velvet villas": "PRS-2AD12D56",
-  "vtp cielo": "PRS-38D01A35",
-  "vtp verve": "PRS-0628FB43",
-  "vtp aurelia": "PRS-E5371EA8",
-  "yana by austin realty": "PRS-57879080",
-  "gera island of joy - child centric homes": "PRS-9BF9627E",
-};
-
 function getPresentationId(projectName: string): string {
-  const normalizedProject = normalize(projectName).toLowerCase();
-  if (!normalizedProject) return "";
-  if (PROJECT_PRESENTATION_ID_MAP[normalizedProject]) {
-    return PROJECT_PRESENTATION_ID_MAP[normalizedProject];
-  }
-  const key = Object.keys(PROJECT_PRESENTATION_ID_MAP).find(
-    (item) => normalizedProject.includes(item) || item.includes(normalizedProject),
-  );
-  return key ? PROJECT_PRESENTATION_ID_MAP[key] : "";
+  return getPresentationIdForProject(projectName);
 }
 
 function createGoogleCalendarUrl({
@@ -586,11 +535,15 @@ export default function PublicCustomerLinkPage() {
     await saveLikedProjects(nextLikedProjects);
   };
 
-  const createSelfViewLink = async (date: string, time: string) => {
-    if (!scheduleProject) return;
+  const createSelfViewLink = async (
+    date: string,
+    time: string,
+    calendarVisible = false,
+  ) => {
+    if (!scheduleProject) return null;
     if (!date || !time) {
       setScheduleError("Please select both date and time.");
-      return;
+      return null;
     }
 
     const projectName = scheduleProject.project.title || "";
@@ -600,7 +553,7 @@ export default function PublicCustomerLinkPage() {
       setScheduleError(
         "Presentation ID is not configured for this project. Please contact your sales person.",
       );
-      return;
+      return null;
     }
 
     setSelfViewCreating(true);
@@ -619,6 +572,7 @@ export default function PublicCustomerLinkPage() {
         meeting_date: date,
         meeting_time: time,
         expires_in_hours: 72,
+        calendar_visible: calendarVisible,
       });
       setSelfViewLink(res.data);
       setLinkData((prev) => {
@@ -680,11 +634,13 @@ export default function PublicCustomerLinkPage() {
           ],
         };
       });
+      return res.data;
     } catch (e: unknown) {
       setScheduleError(
         (e as { message?: string }).message ||
           "Failed to create self-view link.",
       );
+      return null;
     } finally {
       setSelfViewCreating(false);
     }
@@ -716,7 +672,7 @@ export default function PublicCustomerLinkPage() {
     }
 
     if (visitMode === "self") {
-      await createSelfViewLink(meetingDate, meetingTime);
+      await createSelfViewLink(meetingDate, meetingTime, true);
       return;
     }
 
@@ -1696,11 +1652,21 @@ export default function PublicCustomerLinkPage() {
                         </div>
                         <button
                           className="btn btn-primary"
-                          onClick={() => {
+                          onClick={async () => {
                             if (!meetingDate || !meetingTime) {
                               setScheduleError("Please select both date and time.");
                               return;
                             }
+                            const scheduledSelfView = await createSelfViewLink(
+                              meetingDate,
+                              meetingTime,
+                              true,
+                            );
+                            const selfViewUrl =
+                              scheduledSelfView?.self_view_url ||
+                              selfViewLink.self_view_url ||
+                              "";
+                            if (!selfViewUrl) return;
                             const url = createGoogleCalendarUrl({
                               projectName:
                                 scheduleProject.project.title ||
@@ -1711,7 +1677,7 @@ export default function PublicCustomerLinkPage() {
                                 "Customer",
                               date: meetingDate,
                               time: meetingTime,
-                              selfViewUrl: selfViewLink.self_view_url || "",
+                              selfViewUrl,
                             });
                             window.open(url, "_blank");
                           }}

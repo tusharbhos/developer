@@ -69,7 +69,7 @@ export default function SalesUsersPage() {
   const roleLabel = (role: string) =>
     role === "sales_user" ? "Sales User" : role;
   const roleClass = (role: string) =>
-    role === "sales_user" ? "role-sales-user" : "role-company-user";
+    role === "sales_user" ? "role-sales-user" : "";
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

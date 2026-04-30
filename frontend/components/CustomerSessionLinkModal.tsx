@@ -7,30 +7,7 @@ import {
   CustomerSessionLink,
   CustomerSessionLinkAPI,
 } from "@/lib/api";
-
-const PROJECT_PRESENTATION_ID_MAP: Record<string, string> = {
-  "the altius": "PRS-6896775B",
-  "gagan myra": "PRS-6A12987E",
-};
-
-function normalizeProjectName(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function getPresentationIdForProject(projectName: string): string {
-  const normalized = normalizeProjectName(projectName);
-  if (!normalized) return "";
-
-  if (PROJECT_PRESENTATION_ID_MAP[normalized]) {
-    return PROJECT_PRESENTATION_ID_MAP[normalized];
-  }
-
-  const fuzzyKey = Object.keys(PROJECT_PRESENTATION_ID_MAP).find(
-    (key) => normalized.includes(key) || key.includes(normalized),
-  );
-
-  return fuzzyKey ? PROJECT_PRESENTATION_ID_MAP[fuzzyKey] : "";
-}
+import { getPresentationIdForProject } from "@/lib/presentationIds";
 
 function formatDateTime(value?: string) {
   if (!value) return "-";
@@ -43,6 +20,20 @@ function makePresenterId(user?: ApiUser | null) {
   if (!user) return "";
   if (user.unique_key) return user.unique_key;
   return `SP-${String(user.id).padStart(3, "0")}`;
+}
+
+function sameNonEmptyLink(left?: string, right?: string) {
+  const leftValue = (left || "").trim();
+  return leftValue !== "" && leftValue === (right || "").trim();
+}
+
+function isSelfViewOnlyLink(row: CustomerSessionLink) {
+  return (
+    Boolean(row.self_view_url) &&
+    (row.raw_response?.mode === "self_view" ||
+      sameNonEmptyLink(row.self_view_url, row.presenter_link) ||
+      sameNonEmptyLink(row.self_view_url, row.viewer_link))
+  );
 }
 
 export default function CustomerSessionLinkModal({
@@ -236,12 +227,7 @@ export default function CustomerSessionLinkModal({
                 readOnly
                 placeholder="PRS-3AEC34B3"
               />
-              <p
-                className="text-xs mt-1"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                Project select केल्यावर Presentation ID auto-fill होईल.
-              </p>
+              
             </div>
 
             <div
@@ -358,7 +344,19 @@ export default function CustomerSessionLinkModal({
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {links.map((row) => (
+                {links.map((row) => {
+                  const selfViewOnly = isSelfViewOnlyLink(row);
+                  const visiblePresenterLink = selfViewOnly
+                    ? ""
+                    : row.presenter_link;
+                  const visibleViewerLink = selfViewOnly
+                    ? ""
+                    : row.viewer_link;
+                  const visibleSelfViewLink =
+                    row.self_view_url ||
+                    (selfViewOnly ? row.presenter_link || row.viewer_link : "");
+
+                  return (
                   <div
                     key={row.id}
                     className="card p-3"
@@ -388,20 +386,24 @@ export default function CustomerSessionLinkModal({
                         <div style={{ color: "var(--color-text-muted)" }}>
                           Presenter Link
                         </div>
-                        <div className="truncate">{row.presenter_link}</div>
+                        <div className="truncate">
+                          {visiblePresenterLink || "-"}
+                        </div>
                       </div>
                       <div>
                         <div style={{ color: "var(--color-text-muted)" }}>
                           Viewer Link
                         </div>
-                        <div className="truncate">{row.viewer_link}</div>
+                        <div className="truncate">
+                          {visibleViewerLink || "-"}
+                        </div>
                       </div>
                       <div>
                         <div style={{ color: "var(--color-text-muted)" }}>
                           Self-View Link
                         </div>
                         <div className="truncate">
-                          {row.self_view_url || "-"}
+                          {visibleSelfViewLink || "-"}
                         </div>
                       </div>
                       <div>
@@ -419,32 +421,36 @@ export default function CustomerSessionLinkModal({
                     </div>
 
                     <div className="flex gap-2 mt-2 flex-wrap">
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() =>
-                          handleCopy(row.presenter_link, `presenter-${row.id}`)
-                        }
-                      >
-                        {copiedKey === `presenter-${row.id}`
-                          ? "Copied"
-                          : "Copy Presenter Link"}
-                      </button>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() =>
-                          handleCopy(row.viewer_link, `viewer-${row.id}`)
-                        }
-                      >
-                        {copiedKey === `viewer-${row.id}`
-                          ? "Copied"
-                          : "Copy Viewer Link"}
-                      </button>
-                      {row.self_view_url && (
+                      {visiblePresenterLink && (
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() =>
+                            handleCopy(visiblePresenterLink, `presenter-${row.id}`)
+                          }
+                        >
+                          {copiedKey === `presenter-${row.id}`
+                            ? "Copied"
+                            : "Copy Presenter Link"}
+                        </button>
+                      )}
+                      {visibleViewerLink && (
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() =>
+                            handleCopy(visibleViewerLink, `viewer-${row.id}`)
+                          }
+                        >
+                          {copiedKey === `viewer-${row.id}`
+                            ? "Copied"
+                            : "Copy Viewer Link"}
+                        </button>
+                      )}
+                      {visibleSelfViewLink && (
                         <button
                           className="btn btn-ghost"
                           onClick={() =>
                             handleCopy(
-                              row.self_view_url || "",
+                              visibleSelfViewLink,
                               `self-${row.id}`,
                             )
                           }
@@ -454,25 +460,29 @@ export default function CustomerSessionLinkModal({
                             : "Copy Self-View Link"}
                         </button>
                       )}
-                      <button
-                        className="btn btn-gold"
-                        onClick={() =>
-                          window.open(row.presenter_link, "_blank")
-                        }
-                      >
-                        Open Presenter
-                      </button>
-                      <button
-                        className="btn btn-gold"
-                        onClick={() => window.open(row.viewer_link, "_blank")}
-                      >
-                        Open Viewer
-                      </button>
-                      {row.self_view_url && (
+                      {visiblePresenterLink && (
                         <button
                           className="btn btn-gold"
                           onClick={() =>
-                            window.open(row.self_view_url, "_blank")
+                            window.open(visiblePresenterLink, "_blank")
+                          }
+                        >
+                          Open Presenter
+                        </button>
+                      )}
+                      {visibleViewerLink && (
+                        <button
+                          className="btn btn-gold"
+                          onClick={() => window.open(visibleViewerLink, "_blank")}
+                        >
+                          Open Viewer
+                        </button>
+                      )}
+                      {visibleSelfViewLink && (
+                        <button
+                          className="btn btn-gold"
+                          onClick={() =>
+                            window.open(visibleSelfViewLink, "_blank")
                           }
                         >
                           Open Self-View
@@ -480,7 +490,8 @@ export default function CustomerSessionLinkModal({
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

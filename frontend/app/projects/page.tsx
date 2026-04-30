@@ -96,11 +96,6 @@ function getApprovalPromptDismissKey(token: string | null): string | null {
   return `approval_prompt_closed:${token}`;
 }
 
-function getWelcomePromptDismissKey(token: string | null): string | null {
-  if (!token) return null;
-  return `welcome_prompt_closed:${token}`;
-}
-
 function statusStyle(label: string) {
   const key = label.toLowerCase();
   return STATUS_COLORS[key] ?? STATUS_COLORS["default"];
@@ -650,113 +645,6 @@ function ProjectCardUI({
   );
 }
 
-/* ══════════════════════════════════════════════════
-   WELCOME PROFILE POPUP
-══════════════════════════════════════════════════ */
-function WelcomeProfilePopup({
-  userName,
-  onLater,
-  onStartNow,
-}: {
-  userName: string;
-  onLater: () => void;
-  onStartNow: () => void;
-}) {
-  return (
-    <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div
-        className="glass-card animate-fade-in-up"
-        style={{
-          maxWidth: "420px",
-          background: "var(--navy-50)",
-          width: "calc(100% - 2rem)",
-          padding: "2rem 1.75rem",
-          borderRadius: "var(--radius-2xl)",
-          textAlign: "center",
-          position: "relative",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Icon */}
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: "var(--gradient-primary)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 1rem",
-            fontSize: "1.75rem",
-          }}
-        >
-          🎯
-        </div>
-
-        {/* Heading */}
-        <h2
-          style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--navy-900)",
-            fontSize: "1.25rem",
-            fontWeight: 800,
-            marginBottom: "0.5rem",
-            lineHeight: 1.3,
-          }}
-        >
-          Welcome, {userName}! 👋
-        </h2>
-
-        {/* Sub-heading */}
-        <p
-          style={{
-            color: "var(--orange-600)",
-            fontWeight: 700,
-            fontSize: "0.85rem",
-            marginBottom: "0.75rem",
-          }}
-        >
-          Complete Your Partner Profile
-        </p>
-
-        {/* Body text */}
-        <p
-          style={{
-            color: "var(--color-text-secondary)",
-            fontSize: "0.9rem",
-            lineHeight: 1.6,
-            marginBottom: "1.5rem",
-          }}
-        >
-          This form will help us to show you projects that are most suited for
-          you!
-        </p>
-
-        {/* Buttons */}
-        <div
-          style={{ display: "flex", gap: "0.75rem", justifyContent: "center" }}
-        >
-          <button
-            onClick={onLater}
-            className="btn btn-ghost"
-            style={{ flex: 1, maxWidth: "160px", fontSize: "0.875rem" }}
-          >
-            Do It Later
-          </button>
-          <button
-            onClick={onStartNow}
-            className="btn btn-gold"
-            style={{ flex: 1, maxWidth: "160px", fontSize: "0.875rem" }}
-          >
-            Start Now →
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ProjectApprovalHubModal({
   isOpen,
   projects,
@@ -929,7 +817,6 @@ export default function ProjectsPage() {
   const { addToCart, cartCount, cartItems } = useCart();
   const router = useRouter();
 
-  const [showWelcomePopup, setShowWelcomePopup] = useState(false);
   const [showApprovalHub, setShowApprovalHub] = useState(false);
   const [showApprovalPrompt, setShowApprovalPrompt] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -976,76 +863,12 @@ export default function ProjectsPage() {
 
   const isAdmin = user?.role === "admin";
   const isOwner = Boolean(user?.is_company_owner);
-  const isRegularCompanyUser = Boolean(user?.company_id) && !isOwner;
-  const isRestrictedProjectRole = Boolean(
-    user?.role &&
-    ["developer_super_admin", "sourcing_admin", "sales_user"].includes(
-      user.role,
-    ),
-  );
+  const isRegularChannelPartner = Boolean(user?.company_id) && !isOwner;
+  const isRestrictedProjectRole = false;
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/");
   }, [isAuthenticated, isLoading, router]);
-
-  /* ── Show welcome popup only for user/admin role when profile is incomplete ── */
-  useEffect(() => {
-    if (!user) return;
-
-    // Only show for role "user" or "admin"
-    if (user.role !== "user" && user.role !== "admin") {
-      setShowWelcomePopup(false);
-      return;
-    }
-
-    // DB-backed profile completeness checks from /auth/me payload.
-    const hasBasicProfile = Boolean(
-      user.name?.trim() &&
-      user.phone?.trim() &&
-      user.city?.trim() &&
-      user.company_name?.trim() &&
-      user.rera_no?.trim() &&
-      user.address?.trim(),
-    );
-    const hasPreferenceProfile = Boolean(
-      user.primary_market ||
-      (user.budget_segments && user.budget_segments.length > 0) ||
-      (user.buyer_types && user.buyer_types.length > 0) ||
-      user.activation_intent ||
-      (user.channels_used && user.channels_used.length > 0),
-    );
-    const profileCompleted =
-      Boolean(user.onboarding_step && user.onboarding_step >= 3) &&
-      hasBasicProfile &&
-      hasPreferenceProfile;
-
-    if (profileCompleted) {
-      setShowWelcomePopup(false);
-      return;
-    }
-
-    const dismissKey = getWelcomePromptDismissKey(getToken());
-    if (!dismissKey || typeof window === "undefined") {
-      setShowWelcomePopup(true);
-      return;
-    }
-
-    const isDismissed = window.sessionStorage.getItem(dismissKey) === "1";
-    setShowWelcomePopup(!isDismissed);
-  }, [user]);
-
-  const dismissWelcome = () => {
-    const dismissKey = getWelcomePromptDismissKey(getToken());
-    if (dismissKey && typeof window !== "undefined") {
-      window.sessionStorage.setItem(dismissKey, "1");
-    }
-    setShowWelcomePopup(false);
-  };
-
-  const goProfile = () => {
-    dismissWelcome();
-    router.push("/profile");
-  };
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1207,12 +1030,18 @@ export default function ProjectsPage() {
   /* ── filtered list (all matches) ── */
   const filteredProjects = useMemo(() => {
     const query = search.toLowerCase().trim();
-    const isDeveloperSuperAdmin = user?.role === "developer_super_admin";
-    const isSourcingAdmin = user?.role === "sourcing_admin";
-    const isSalesUser = user?.role === "sales_user";
-    const actorDeveloperName = normalize(user?.developer_name);
+    const assignedProjectLimitedRoles = new Set([
+      "developer_super_admin",
+      "sourcing_admin",
+      "sales_user",
+    ]);
+    const shouldLimitToAssignedProjects = Boolean(
+      user?.role && assignedProjectLimitedRoles.has(user.role),
+    );
     const assignedProjectSet = new Set(
-      (user?.assigned_projects ?? []).map((name) => normalize(name)),
+      (user?.assigned_projects ?? [])
+        .map((name) => normalize(name).toLowerCase())
+        .filter(Boolean),
     );
 
     return projects.filter((project) => {
@@ -1220,18 +1049,10 @@ export default function ProjectsPage() {
       const developer = normalize(project.developer);
       const location = normalize(project.location);
 
-      if (isDeveloperSuperAdmin) {
-        // Developer super admin can see only projects mapped to their developer name.
-        if (!actorDeveloperName || !developer) return false;
-        if (developer.toLowerCase() !== actorDeveloperName.toLowerCase()) {
+      if (shouldLimitToAssignedProjects) {
+        if (!title || !assignedProjectSet.has(title.toLowerCase())) {
           return false;
         }
-      }
-
-      if (isSourcingAdmin || isSalesUser) {
-        // Sourcing admin and sales user can see only explicitly assigned projects.
-        if (assignedProjectSet.size === 0) return false;
-        if (!title || !assignedProjectSet.has(title)) return false;
       }
 
       const status = normalize(project.development_status).toLowerCase();
@@ -1338,7 +1159,6 @@ export default function ProjectsPage() {
     search,
     filters,
     user?.role,
-    user?.developer_name,
     user?.assigned_projects,
   ]);
 
@@ -1463,12 +1283,12 @@ export default function ProjectsPage() {
   };
 
   useEffect(() => {
-    if (isAuthenticated && (!isRegularCompanyUser || isRestrictedProjectRole)) {
+    if (isAuthenticated && (!isRegularChannelPartner || isRestrictedProjectRole)) {
       loadApprovalProjects();
     }
   }, [
     isAuthenticated,
-    isRegularCompanyUser,
+    isRegularChannelPartner,
     isRestrictedProjectRole,
     loadApprovalProjects,
   ]);
@@ -1477,10 +1297,7 @@ export default function ProjectsPage() {
     () => approvalProjects.filter((p) => (p.my_approval_attempts ?? 0) === 0),
     [approvalProjects],
   );
-  const hideCustomerActions =
-    user?.role === "developer_super_admin" ||
-    user?.role === "sourcing_admin" ||
-    user?.role === "sales_user";
+  const hideCustomerActions = false;
   const approvalLeadCount = pendingApprovalProjects.length;
 
   useEffect(() => {
@@ -1512,15 +1329,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="bg-main min-h-screen flex flex-col">
-      {/* ── Welcome Profile Popup ── */}
-      {showWelcomePopup && user && (
-        <WelcomeProfilePopup
-          userName={user.name}
-          onLater={dismissWelcome}
-          onStartNow={goProfile}
-        />
-      )}
-
       <Header variant="app" />
 
       <SidebarFilter
@@ -1601,7 +1409,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {(!isRegularCompanyUser || isRestrictedProjectRole) &&
+      {(!isRegularChannelPartner || isRestrictedProjectRole) &&
         approvalLeadCount > 0 &&
         showApprovalPrompt && (
           <div

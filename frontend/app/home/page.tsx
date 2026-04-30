@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -41,26 +41,6 @@ const PRIMARY_ACTIONS: HomeAction[] = [
 export default function HomePage() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
-  const isRestrictedCustomerRole = Boolean(
-    user?.role &&
-    ["developer_super_admin", "sourcing_admin", "sales_user"].includes(
-      user.role,
-    ),
-  );
-
-  const primaryActions = useMemo(() => {
-    if (!isRestrictedCustomerRole) return PRIMARY_ACTIONS;
-
-    return PRIMARY_ACTIONS.map((action) =>
-      action.href === "/customer"
-        ? {
-            ...action,
-            label: "View Customer",
-            subtitle: "View customer profiles and meetings",
-          }
-        : action,
-    );
-  }, [isRestrictedCustomerRole]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -113,7 +93,7 @@ export default function HomePage() {
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {primaryActions.map((action) => (
+              {PRIMARY_ACTIONS.map((action) => (
                 <button
                   key={action.href}
                   type="button"

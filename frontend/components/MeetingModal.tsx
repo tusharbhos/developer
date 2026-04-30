@@ -157,6 +157,17 @@ export default function MeetingModal({
   const viewerLink = sessionLink?.viewer_link || "";
   const presenterLink = sessionLink?.presenter_link || "";
   const selfViewLink = sessionLink?.self_view_url || "";
+  const sameLink = (left: string, right: string) =>
+    left.trim() !== "" && left.trim() === right.trim();
+  const isSelfViewOnlySession =
+    Boolean(selfViewLink) &&
+    (sessionLink?.raw_response?.mode === "self_view" ||
+      sameLink(selfViewLink, presenterLink) ||
+      sameLink(selfViewLink, viewerLink));
+  const visiblePresenterLink = isSelfViewOnlySession ? "" : presenterLink;
+  const visibleViewerLink = isSelfViewOnlySession ? "" : viewerLink;
+  const visibleSelfViewLink =
+    selfViewLink || (isSelfViewOnlySession ? presenterLink || viewerLink : "");
 
   /* ── sender signature from logged-in user ── */
   const senderName = user?.name ?? "";
@@ -514,7 +525,8 @@ export default function MeetingModal({
               </div>
             )}
 
-            {sessionLink && (presenterLink || viewerLink || selfViewLink) ? (
+            {sessionLink &&
+            (visiblePresenterLink || visibleViewerLink || visibleSelfViewLink) ? (
               <div
                 style={{
                   padding: "0.95rem",
@@ -538,7 +550,7 @@ export default function MeetingModal({
                   📍 Session Links (Blue Box)
                 </p>
 
-                {presenterLink && (
+                {visiblePresenterLink && (
                   <div style={{ marginBottom: "0.75rem" }}>
                     <p
                       style={{
@@ -559,7 +571,7 @@ export default function MeetingModal({
                         fontFamily: "monospace",
                       }}
                     >
-                      {presenterLink.slice(0, 50)}...
+                      {visiblePresenterLink.slice(0, 50)}...
                     </p>
                     <div style={{ display: "flex", gap: "0.4rem" }}>
                       <button
@@ -569,7 +581,7 @@ export default function MeetingModal({
                           fontSize: "0.68rem",
                         }}
                         onClick={() => {
-                          navigator.clipboard.writeText(presenterLink);
+                          navigator.clipboard.writeText(visiblePresenterLink);
                           setCopied("presenter");
                           setTimeout(() => setCopied(null), 1600);
                         }}
@@ -582,7 +594,9 @@ export default function MeetingModal({
                           padding: "0.3rem 0.5rem",
                           fontSize: "0.68rem",
                         }}
-                        onClick={() => window.open(presenterLink, "_blank")}
+                        onClick={() =>
+                          window.open(visiblePresenterLink, "_blank")
+                        }
                       >
                         Open ↗
                       </button>
@@ -590,7 +604,7 @@ export default function MeetingModal({
                   </div>
                 )}
 
-                {viewerLink && (
+                {visibleViewerLink && (
                   <div>
                     <p
                       style={{
@@ -615,7 +629,7 @@ export default function MeetingModal({
                         border: "1px solid rgba(22,163,74,0.2)",
                       }}
                     >
-                      {viewerLink}
+                      {visibleViewerLink}
                     </p>
                     <div
                       style={{
@@ -631,7 +645,7 @@ export default function MeetingModal({
                           fontSize: "0.68rem",
                         }}
                         onClick={() => {
-                          navigator.clipboard.writeText(viewerLink);
+                          navigator.clipboard.writeText(visibleViewerLink);
                           setCopied("viewer");
                           setTimeout(() => setCopied(null), 1600);
                         }}
@@ -644,7 +658,7 @@ export default function MeetingModal({
                           padding: "0.3rem 0.5rem",
                           fontSize: "0.68rem",
                         }}
-                        onClick={() => window.open(viewerLink, "_blank")}
+                        onClick={() => window.open(visibleViewerLink, "_blank")}
                       >
                         Open ↗
                       </button>
@@ -652,7 +666,7 @@ export default function MeetingModal({
                   </div>
                 )}
 
-                {selfViewLink && (
+                {visibleSelfViewLink && (
                   <div style={{ marginTop: "0.75rem" }}>
                     <p
                       style={{
@@ -677,7 +691,7 @@ export default function MeetingModal({
                         border: "1px solid rgba(59,130,246,0.2)",
                       }}
                     >
-                      {selfViewLink}
+                      {visibleSelfViewLink}
                     </p>
                     <div
                       style={{
@@ -693,7 +707,7 @@ export default function MeetingModal({
                           fontSize: "0.68rem",
                         }}
                         onClick={() => {
-                          navigator.clipboard.writeText(selfViewLink);
+                          navigator.clipboard.writeText(visibleSelfViewLink);
                           setCopied("self");
                           setTimeout(() => setCopied(null), 1600);
                         }}
@@ -706,7 +720,9 @@ export default function MeetingModal({
                           padding: "0.3rem 0.5rem",
                           fontSize: "0.68rem",
                         }}
-                        onClick={() => window.open(selfViewLink, "_blank")}
+                        onClick={() =>
+                          window.open(visibleSelfViewLink, "_blank")
+                        }
                       >
                         Open ↗
                       </button>

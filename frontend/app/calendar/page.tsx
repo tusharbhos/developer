@@ -18,6 +18,13 @@ import AddCustomerModal from "@/components/AddCustomerModal";
 import MeetingModal, { MeetingEntry } from "@/components/MeetingModal";
 import PreSiteVisitModal from "@/components/PreSiteVisitModal";
 import { format12HourTime, formatDisplayDate } from "@/lib/dateTime";
+import {
+  hasCompletedSessionEvidence,
+  hasViewerActivity,
+  getTimedMeetingStatus,
+  timedMeetingStatusLabel,
+  TimedMeetingStatus,
+} from "@/lib/meetingStatus";
 
 const WEEKDAYS_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
@@ -50,10 +57,10 @@ function fmt12(t: string) {
 }
 
 const SESSION_LINK_PILL = {
-  bg: "rgba(59, 130, 246, 0.18)", // Dark blue background
-  text: "#000", // White text (clear visibility)
-  border: "rgba(59, 130, 246, 0.4)", // Slightly lighter blue border
-  dot: "#60a5fa", // Light blue dot for contrast
+  bg: "rgba(59, 130, 246, 0.18)",
+  text: "#000",
+  border: "rgba(59, 130, 246, 0.4)",
+  dot: "#60a5fa",
 };
 const SCHEDULED_PILL = {
   bg: "rgba(249,115,22,0.12)",
@@ -61,12 +68,29 @@ const SCHEDULED_PILL = {
   border: "rgba(249,115,22,0.32)",
   dot: "#f97316",
 };
-
 const SITE_VISIT_PILL = {
   bg: "rgba(34,197,94,0.14)",
   text: "#14532d",
   border: "rgba(34,197,94,0.34)",
   dot: "#16a34a",
+};
+const LIVE_PILL = {
+  bg: "rgba(124,58,237,0.14)",
+  text: "#5b21b6",
+  border: "rgba(124,58,237,0.34)",
+  dot: "#7c3aed",
+};
+const SELF_VIEW_PILL = {
+  bg: "rgba(147,51,234,0.16)",
+  text: "#581c87",
+  border: "rgba(147,51,234,0.38)",
+  dot: "#9333ea",
+};
+const COMPLETED_PILL = {
+  bg: "rgba(107,114,128,0.14)",
+  text: "#374151",
+  border: "rgba(107,114,128,0.34)",
+  dot: "#6b7280",
 };
 
 type CalendarSessionLink = CustomerSessionLink & {
@@ -82,7 +106,28 @@ type CalendarSessionLink = CustomerSessionLink & {
 };
 
 type ConectrAnalyticsResponse = {
+  session?: {
+    status?: string;
+    started_at?: string;
+    ended_at?: string;
+    joinees?: number;
+    event_count?: number;
+  };
   events?: Array<Record<string, unknown>>;
+};
+
+type SessionEvidence = {
+  status?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  joinees?: number;
+  eventCount?: number;
+};
+
+type AnalyticsEntryResult = {
+  sessionLinkId: number;
+  evidence: SessionEvidence;
+  entries: CalendarEntry[];
 };
 
 type SiteVisitFeedbackDetails = {
@@ -95,11 +140,17 @@ type SiteVisitFeedbackDetails = {
 };
 
 type CalendarEntry = MeetingEntry & {
-  kind: "meeting" | "site-visit";
+  kind: "meeting" | "site-visit" | "self-view";
   hasSessionLink?: boolean;
   sessionLinkCount?: number;
   latestSessionLinkId?: number | null;
   latestSessionCreatedAt?: string | null;
+  latestSessionStatus?: string | null;
+  latestSessionStartedAt?: string | null;
+  latestSessionEndedAt?: string | null;
+  latestSessionJoinees?: number;
+  latestSessionEventCount?: number;
+  sessionEvidence?: SessionEvidence;
   siteVisitFeedback?: SiteVisitFeedbackDetails;
 };
 
@@ -402,10 +453,59 @@ function extractSiteVisitEntries(
   });
 }
 
+function isCalendarVisibleSelfView(sessionLink: CalendarSessionLink) {
+  return (
+    Boolean(sessionLink.self_view_url) &&
+    Boolean(sessionLink.meeting_date) &&
+    Boolean(sessionLink.meeting_time) &&
+    sessionLink.raw_response?.self_view_calendar_visible === true
+  );
+}
+
+function buildSelfViewCalendarEntry(
+  sessionLink: CalendarSessionLink,
+  customer: Customer,
+): CalendarEntry {
+  return {
+    customer,
+    meeting_date: sessionLink.meeting_date || "",
+    meeting_time: sessionLink.meeting_time || "",
+    project_name:
+      sessionLink.project_name ||
+      sessionLink.presentation_title ||
+      sessionLink.presentation_id,
+    kind: "self-view",
+    hasSessionLink: true,
+    sessionLinkCount: 1,
+    latestSessionLinkId: sessionLink.id,
+    latestSessionCreatedAt: sessionLink.created_at,
+    latestSessionStatus: sessionLink.status ?? null,
+    latestSessionStartedAt: sessionLink.started_at ?? null,
+    latestSessionEndedAt: sessionLink.ended_at ?? null,
+    latestSessionJoinees: sessionLink.joinees ?? 0,
+    latestSessionEventCount: sessionLink.event_count ?? 0,
+    sessionEvidence: {
+      status: sessionLink.status ?? "scheduled",
+      startedAt: sessionLink.started_at ?? null,
+      endedAt: sessionLink.ended_at ?? null,
+      joinees: sessionLink.joinees ?? 0,
+      eventCount: sessionLink.event_count ?? 0,
+    },
+  };
+}
+
 function getEntryPalette(entry: CalendarEntry) {
   if (entry.kind === "site-visit") {
     return SITE_VISIT_PILL;
   }
+  if (entry.kind === "self-view") {
+    return SELF_VIEW_PILL;
+  }
+
+  const status = getCalendarEntryTimedStatus(entry);
+  if (status === "live") return LIVE_PILL;
+  if (status === "completed") return COMPLETED_PILL;
+
   return entry.hasSessionLink ? SESSION_LINK_PILL : SCHEDULED_PILL;
 }
 
@@ -431,7 +531,35 @@ function getEntryStatusLabel(entry: CalendarEntry) {
   if (entry.kind === "site-visit") {
     return "Site Visit Form Submitted";
   }
-  return entry.hasSessionLink ? "Session Link Created" : "Meeting Scheduled";
+  if (entry.kind === "self-view") {
+    return "Self-View Later";
+  }
+  const status = getCalendarEntryTimedStatus(entry);
+  if (status === "scheduled") {
+    return entry.hasSessionLink ? "Session Scheduled" : "Requested Session";
+  }
+  return timedMeetingStatusLabel(status);
+}
+
+function getCalendarEntryTimedStatus(entry: CalendarEntry): TimedMeetingStatus {
+  const evidence = entry.sessionEvidence;
+  return getTimedMeetingStatus({
+    meetingDate: entry.meeting_date,
+    meetingTime: entry.meeting_time,
+    hasSession:
+      Boolean(entry.hasSessionLink) || (entry.sessionLinkCount || 0) > 0,
+    hasViewerActivity: hasViewerActivity({
+      joinees: evidence?.joinees ?? entry.latestSessionJoinees,
+      eventCount: evidence?.eventCount ?? entry.latestSessionEventCount,
+    }),
+    completedEvidence: hasCompletedSessionEvidence({
+      status: evidence?.status ?? entry.latestSessionStatus,
+      startedAt: evidence?.startedAt ?? entry.latestSessionStartedAt,
+      endedAt: evidence?.endedAt ?? entry.latestSessionEndedAt,
+      joinees: evidence?.joinees ?? entry.latestSessionJoinees,
+      eventCount: evidence?.eventCount ?? entry.latestSessionEventCount,
+    }),
+  });
 }
 
 function formatFeedbackValue(value: unknown): string {
@@ -938,7 +1066,7 @@ export default function CalendarPage() {
   const todayStr = today.toISOString().split("T")[0];
 
   const restrictRoles = useMemo(
-    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
+    () => new Set<string>(),
     [],
   );
   const restrictToAllowedProjects = Boolean(
@@ -966,11 +1094,19 @@ export default function CalendarPage() {
   const [selectedDateKey, setSelectedDateKey] = useState(todayStr);
   const [datePanelOpen, setDatePanelOpen] = useState({
     siteVisit: true,
+    selfView: true,
+    live: true,
     scheduled: true,
     requested: true,
+    completed: true,
   });
   const [siteVisitEntries, setSiteVisitEntries] = useState<CalendarEntry[]>([]);
+  const [selfViewEntries, setSelfViewEntries] = useState<CalendarEntry[]>([]);
+  const [sessionEvidenceByLinkId, setSessionEvidenceByLinkId] = useState<
+    Record<number, SessionEvidence>
+  >({});
   const [refreshTick, setRefreshTick] = useState(0);
+  const [statusClock, setStatusClock] = useState(() => Date.now());
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(
     null,
   );
@@ -979,6 +1115,11 @@ export default function CalendarPage() {
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/");
   }, [isAuthenticated, isLoading, router]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setStatusClock(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const fetchCustomers = useCallback(async () => {
     try {
@@ -1028,11 +1169,29 @@ export default function CalendarPage() {
       const sessionLinksRes = await CustomerSessionLinkAPI.list();
       const sessionLinks = (sessionLinksRes.data ||
         []) as CalendarSessionLink[];
+      const nextSelfViewEntries = sessionLinks
+        .filter(isCalendarVisibleSelfView)
+        .filter(
+          (sessionLink) =>
+            !restrictToAllowedProjects ||
+            !sessionLink.project_name ||
+            allowedProjectSet.has(normalize(sessionLink.project_name)),
+        )
+        .flatMap((sessionLink) => {
+          const customer = buildCalendarCustomer(
+            sessionLink,
+            customerById.get(sessionLink.customer_id),
+          );
+          return customer
+            ? [buildSelfViewCalendarEntry(sessionLink, customer)]
+            : [];
+        });
+      setSelfViewEntries(nextSelfViewEntries);
 
       const analyticsResults = await Promise.allSettled(
-        sessionLinks.map(async (sessionLink) => {
+        sessionLinks.map(async (sessionLink): Promise<AnalyticsEntryResult | null> => {
           if (!sessionLink.session_token) {
-            return [] as CalendarEntry[];
+            return null;
           }
 
           if (
@@ -1040,7 +1199,7 @@ export default function CalendarPage() {
             sessionLink.project_name &&
             !allowedProjectSet.has(normalize(sessionLink.project_name))
           ) {
-            return [] as CalendarEntry[];
+            return null;
           }
 
           const customer = buildCalendarCustomer(
@@ -1048,7 +1207,7 @@ export default function CalendarPage() {
             customerById.get(sessionLink.customer_id),
           );
           if (!customer) {
-            return [] as CalendarEntry[];
+            return null;
           }
 
           const analyticsRes = await fetch(
@@ -1060,20 +1219,46 @@ export default function CalendarPage() {
           );
 
           if (!analyticsRes.ok) {
-            return [] as CalendarEntry[];
+            return null;
           }
 
           const analytics =
             (await analyticsRes.json()) as ConectrAnalyticsResponse;
 
-          return extractSiteVisitEntries(sessionLink, analytics, customer);
+          const evidence: SessionEvidence = {
+            status: analytics.session?.status ?? sessionLink.status ?? null,
+            startedAt:
+              analytics.session?.started_at ?? sessionLink.started_at ?? null,
+            endedAt: analytics.session?.ended_at ?? sessionLink.ended_at ?? null,
+            joinees: Number(analytics.session?.joinees ?? sessionLink.joinees ?? 0),
+            eventCount: Math.max(
+              Number(analytics.session?.event_count ?? 0),
+              Array.isArray(analytics.events) ? analytics.events.length : 0,
+              Number(sessionLink.event_count ?? 0),
+            ),
+          };
+
+          return {
+            sessionLinkId: sessionLink.id,
+            evidence,
+            entries: extractSiteVisitEntries(sessionLink, analytics, customer),
+          };
         }),
       );
+
+      const nextEvidence: Record<number, SessionEvidence> = {};
+      analyticsResults.forEach((result) => {
+        if (result.status !== "fulfilled" || !result.value) return;
+        nextEvidence[result.value.sessionLinkId] = result.value.evidence;
+      });
+      setSessionEvidenceByLinkId(nextEvidence);
 
       const seenKeys = new Set<string>();
       const nextEntries = analyticsResults
         .flatMap((result) =>
-          result.status === "fulfilled" ? result.value : [],
+          result.status === "fulfilled" && result.value
+            ? result.value.entries
+            : [],
         )
         .filter((entry) => {
           const uniqueKey = `${entry.siteVisitFeedback?.sessionLinkId ?? "na"}:${entry.meeting_date}:${entry.meeting_time}:${entry.siteVisitFeedback?.submittedAt ?? ""}`;
@@ -1092,6 +1277,8 @@ export default function CalendarPage() {
       setSiteVisitEntries(nextEntries);
     } catch {
       setSiteVisitEntries([]);
+      setSelfViewEntries([]);
+      setSessionEvidenceByLinkId({});
     } finally {
       setLoadingSiteVisits(false);
     }
@@ -1134,10 +1321,19 @@ export default function CalendarPage() {
             assigned_to_user_name: p.assigned_to_user_name,
             updated_by_name: p.updated_by_name,
             kind: "meeting",
-            hasSessionLink: Boolean(p.has_session_link),
+            hasSessionLink:
+              Boolean(p.has_session_link) || (p.session_link_count || 0) > 0,
             sessionLinkCount: p.session_link_count ?? 0,
             latestSessionLinkId: p.latest_session_link_id ?? null,
             latestSessionCreatedAt: p.latest_session_created_at ?? null,
+            latestSessionStatus: p.latest_session_status ?? null,
+            latestSessionStartedAt: p.latest_session_started_at ?? null,
+            latestSessionEndedAt: p.latest_session_ended_at ?? null,
+            latestSessionJoinees: p.latest_session_joinees ?? 0,
+            latestSessionEventCount: p.latest_session_event_count ?? 0,
+            sessionEvidence: p.latest_session_link_id
+              ? sessionEvidenceByLinkId[p.latest_session_link_id]
+              : undefined,
           });
         });
       } else if (c.meeting_date) {
@@ -1153,22 +1349,28 @@ export default function CalendarPage() {
           meeting_time: c.meeting_time ?? "",
           project_name: c.project_name ?? "",
           kind: "meeting",
-          hasSessionLink: Boolean(c.has_session_link),
+          hasSessionLink:
+            Boolean(c.has_session_link) || (c.session_link_count || 0) > 0,
           sessionLinkCount: c.session_link_count ?? 0,
         });
       }
     });
     return out;
-  }, [customers, restrictToAllowedProjects, allowedProjectSet]);
+  }, [
+    customers,
+    restrictToAllowedProjects,
+    allowedProjectSet,
+    sessionEvidenceByLinkId,
+  ]);
 
   const allMeetings = useMemo(
     () =>
-      [...meetingEntries, ...siteVisitEntries].sort((left, right) =>
+      [...meetingEntries, ...siteVisitEntries, ...selfViewEntries].sort((left, right) =>
         (left.meeting_date + left.meeting_time).localeCompare(
           right.meeting_date + right.meeting_time,
         ),
       ),
-    [meetingEntries, siteVisitEntries],
+    [meetingEntries, siteVisitEntries, selfViewEntries],
   );
 
   const meetingMap = useMemo(() => {
@@ -1194,20 +1396,59 @@ export default function CalendarPage() {
     [selectedDateEntries],
   );
 
-  const selectedDateSessionScheduled = useMemo(
-    () =>
-      selectedDateEntries.filter(
-        (entry) => entry.kind === "meeting" && Boolean(entry.hasSessionLink),
-      ),
+  const selectedDateSelfViews = useMemo(
+    () => selectedDateEntries.filter((entry) => entry.kind === "self-view"),
     [selectedDateEntries],
   );
 
+  const selectedDateLive = useMemo(
+    () => {
+      void statusClock;
+      return selectedDateEntries.filter(
+        (entry) =>
+          entry.kind === "meeting" &&
+          getCalendarEntryTimedStatus(entry) === "live",
+      );
+    },
+    [selectedDateEntries, statusClock],
+  );
+
+  const selectedDateSessionScheduled = useMemo(
+    () => {
+      void statusClock;
+      return selectedDateEntries.filter(
+        (entry) =>
+          entry.kind === "meeting" &&
+          getCalendarEntryTimedStatus(entry) === "scheduled" &&
+          Boolean(entry.hasSessionLink),
+      );
+    },
+    [selectedDateEntries, statusClock],
+  );
+
   const selectedDateRequested = useMemo(
-    () =>
-      selectedDateEntries.filter(
-        (entry) => entry.kind === "meeting" && !entry.hasSessionLink,
-      ),
-    [selectedDateEntries],
+    () => {
+      void statusClock;
+      return selectedDateEntries.filter(
+        (entry) =>
+          entry.kind === "meeting" &&
+          getCalendarEntryTimedStatus(entry) === "scheduled" &&
+          !entry.hasSessionLink,
+      );
+    },
+    [selectedDateEntries, statusClock],
+  );
+
+  const selectedDateCompleted = useMemo(
+    () => {
+      void statusClock;
+      return selectedDateEntries.filter((entry) => {
+        if (entry.kind !== "meeting") return false;
+        const status = getCalendarEntryTimedStatus(entry);
+        return status === "completed";
+      });
+    },
+    [selectedDateEntries, statusClock],
   );
 
   const monthMeetings = useMemo(
@@ -1737,6 +1978,16 @@ export default function CalendarPage() {
                           items: selectedDateSiteVisits,
                         },
                         {
+                          key: "selfView",
+                          title: "Self-View Later",
+                          items: selectedDateSelfViews,
+                        },
+                        {
+                          key: "live",
+                          title: "Live Sessions",
+                          items: selectedDateLive,
+                        },
+                        {
                           key: "scheduled",
                           title: "Session Scheduled",
                           items: selectedDateSessionScheduled,
@@ -1745,6 +1996,11 @@ export default function CalendarPage() {
                           key: "requested",
                           title: "Requested Session",
                           items: selectedDateRequested,
+                        },
+                        {
+                          key: "completed",
+                          title: "Completed",
+                          items: selectedDateCompleted,
                         },
                       ] as const
                     ).map((section) => {
@@ -1850,9 +2106,7 @@ export default function CalendarPage() {
                                         >
                                           {entry.kind === "site-visit"
                                             ? "Site Visit"
-                                            : entry.hasSessionLink
-                                              ? "Scheduled"
-                                              : "Requested"}
+                                            : getEntryStatusLabel(entry)}
                                         </span>
                                       </div>
                                       <p

@@ -88,13 +88,11 @@ function CartProjectMedia({
   );
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
 
-  useEffect(() => {
-    setActiveVideoIndex(0);
-  }, [project.id, showcaseVideos.length]);
-
   const hasMultipleVideos = showcaseVideos.length > 1;
+  const safeVideoIndex =
+    activeVideoIndex < showcaseVideos.length ? activeVideoIndex : 0;
   const showcaseVideoUrl =
-    showcaseVideos[activeVideoIndex] ?? getProjectShowcaseVideo(project);
+    showcaseVideos[safeVideoIndex] ?? getProjectShowcaseVideo(project);
 
   const goNextVideo = useCallback(() => {
     if (!showcaseVideos.length) return;
@@ -211,7 +209,6 @@ export default function CartPage() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [includeDetails, setIncludeDetails] = useState(true);
   const [generatedLink, setGeneratedLink] = useState("");
   const [showShareOptions, setShowShareOptions] = useState(false);
   const [generatedMessage, setGeneratedMessage] = useState("");
@@ -380,13 +377,10 @@ export default function CartPage() {
           `   🚧 Development Status: ${statusText}`,
         ].join("\n");
 
-        if (includeDetails) {
-          return [header, detailsOnly].join("\n");
-        }
-        return detailsOnly;
+        return [header, detailsOnly].join("\n");
       })
       .join("\n\n");
-  }, [cartProjects, includeDetails]);
+  }, [cartProjects]);
 
   const createCustomerLink = useCallback(async () => {
     if (!selectedCustomerId) {
@@ -399,7 +393,6 @@ export default function CartPage() {
 
     const payload: LinkedProjectCard[] = cartProjects.map((project) => ({
       ...mapProjectCard(project),
-      mask_identity: !includeDetails,
       meeting_date: cartItemsById[project.id]?.meeting_date || todayDate,
     }));
 
@@ -412,7 +405,6 @@ export default function CartPage() {
   }, [
     cartItemsById,
     cartProjects,
-    includeDetails,
     selectedCustomerId,
     todayDate,
   ]);
@@ -868,85 +860,6 @@ export default function CartPage() {
                   <h3 className="text-lg font-bold text-gray-900 mb-3">
                     Send Via
                   </h3>
-
-                  {/* Message format toggle */}
-                  <div
-                    className="mb-4 p-3 rounded-lg"
-                    style={{
-                      background: "var(--slate-50)",
-                      border: "1px solid var(--slate-200)",
-                    }}
-                  >
-                    <p className="text-xs font-bold text-gray-700 mb-2">
-                      Message Format
-                    </p>
-                    <button
-                      onClick={() => setIncludeDetails((v) => !v)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.6rem",
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
-                        width: "100%",
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: "42px",
-                          height: "24px",
-                          borderRadius: "999px",
-                          background: includeDetails ? "#1e4580" : "#cbd5e1",
-                          position: "relative",
-                          transition: "background 0.2s",
-                          flexShrink: 0,
-                          display: "inline-block",
-                        }}
-                      >
-                        <span
-                          style={{
-                            position: "absolute",
-                            top: "4px",
-                            left: includeDetails ? "22px" : "4px",
-                            width: "16px",
-                            height: "16px",
-                            borderRadius: "50%",
-                            background: "#fff",
-                            transition: "left 0.2s",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
-                          }}
-                        />
-                      </span>
-                      <span style={{ textAlign: "left" }}>
-                        <span
-                          style={{
-                            fontSize: "0.82rem",
-                            fontWeight: 700,
-                            color: includeDetails
-                              ? "var(--navy-900)"
-                              : "var(--color-text-muted)",
-                            display: "block",
-                          }}
-                        >
-                          {includeDetails
-                            ? "Include all details"
-                            : "Details only (No Developer Name/ Project name)"}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "var(--color-text-hint)",
-                          }}
-                        >
-                          {includeDetails
-                            ? "Project + developer + location, price, type, area, possession…"
-                            : "Tap to include project + developer also"}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
 
                   <button
                     onClick={handleCreateLink}
