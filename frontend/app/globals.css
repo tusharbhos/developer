@@ -15,9 +15,8 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
   border-radius: 28px;
 }
-/* globals.css मध्ये add करा */
 
-/* Auth bg override — login/signup pages वर plain bg-main च दिसेल */
+/* Auth bg override */
 .auth-bg {
   background: transparent !important;
 }
@@ -851,7 +850,6 @@ input[type="checkbox"] { accent-color: var(--navy-600); width:15px; height:15px;
 }
 .role-admin { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
 .role-company-owner { background: #fef3c7; color: #92400e; border-color: #fde68a; }
-.role-company-user { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
 .role-developer-super-admin { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
 .role-sourcing-admin { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
 .role-sales-user { background: #fce7f3; color: #be185d; border-color: #fbcfe8; }

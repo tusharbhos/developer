@@ -296,10 +296,7 @@ export default function ProjectDetailsPage() {
   const desktopImage = mediaUrl(project.background_image_desktop);
   const mainLogo = mediaUrl(project.main_logo);
   const sideLogo = mediaUrl(project.side_logo);
-  const hideCustomerActions =
-    user?.role === "developer_super_admin" ||
-    user?.role === "sourcing_admin" ||
-    user?.role === "sales_user";
+  const hideCustomerActions = false;
 
   const handleAddToCart = () => {
     addToCart({

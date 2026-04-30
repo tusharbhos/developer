@@ -63,7 +63,7 @@ export default function SourcingManagersPage() {
   const roleLabel = (role: string) =>
     role === "sourcing_admin" ? "Sourcing Admin" : role;
   const roleClass = (role: string) =>
-    role === "sourcing_admin" ? "role-sourcing-admin" : "role-company-user";
+    role === "sourcing_admin" ? "role-sourcing-admin" : "";
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {

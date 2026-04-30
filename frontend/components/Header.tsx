@@ -66,8 +66,6 @@ export default function Header({ variant = "landing" }: HeaderProps) {
   const isAdmin = user?.role === "admin";
   const isDeveloperSuperAdmin = user?.role === "developer_super_admin";
   const isSourcingAdmin = user?.role === "sourcing_admin";
-  const canManageCompanyUsers =
-    (user?.is_company_owner || isAdmin) && !isDeveloperSuperAdmin;
   const companyLabel =
     user?.company_name?.trim() || user?.name?.trim() || user?.email || "User";
   const avatarInitial = companyLabel.charAt(0).toUpperCase();
@@ -160,14 +158,6 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                 Log In
               </button>
             </Link>
-            <Link href="/signup">
-              <button
-                className="btn btn-gold"
-                style={{ fontSize: "0.8rem", padding: "0.45rem 0.85rem" }}
-              >
-                Sign Up
-              </button>
-            </Link>
           </nav>
         )}
 
@@ -182,25 +172,14 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                 Projects
               </button>
             </Link>
-            {pathname === "/" ? (
-              <Link href="/signup">
-                <button
-                  className="btn btn-gold"
-                  style={{ fontSize: "0.8rem", padding: "0.45rem 0.85rem" }}
-                >
-                  Sign Up
-                </button>
-              </Link>
-            ) : (
-              <Link href="/">
-                <button
-                  className="btn btn-gold"
-                  style={{ fontSize: "0.8rem", padding: "0.45rem 0.85rem" }}
-                >
-                  Log In
-                </button>
-              </Link>
-            )}
+            <Link href="/">
+              <button
+                className="btn btn-gold"
+                style={{ fontSize: "0.8rem", padding: "0.45rem 0.85rem" }}
+              >
+                Log In
+              </button>
+            </Link>
           </nav>
         )}
 
@@ -349,8 +328,7 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                 </div>
                 <div className="py-1">
                   {[
-                    ...(user?.role === "user" ||
-                    user?.role === "admin" ||
+                    ...(user?.role === "admin" ||
                     user?.role === "developer_super_admin" ||
                     user?.role === "sourcing_admin" ||
                     user?.role === "sales_user"
@@ -359,15 +337,6 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                             icon: "👤",
                             label: "My Profile",
                             action: () => router.push("/profile"),
-                          },
-                        ]
-                      : []),
-                    ...(canManageCompanyUsers
-                      ? [
-                          {
-                            icon: "🏢",
-                            label: "Channel Partner User Management",
-                            action: () => router.push("/company-users"),
                           },
                         ]
                       : []),
@@ -526,33 +495,6 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                   </Link>
                 );
               })}
-              {canManageCompanyUsers && (
-                <Link
-                  href="/company-users"
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <button
-                    className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-semibold flex items-center gap-3 transition-all mb-0.5"
-                    style={{
-                      background:
-                        pathname === "/company-users"
-                          ? "var(--navy-50)"
-                          : "transparent",
-                      color:
-                        pathname === "/company-users"
-                          ? "var(--navy-700)"
-                          : "var(--color-text-secondary)",
-                      borderLeft:
-                        pathname === "/company-users"
-                          ? "3px solid var(--navy-600)"
-                          : "3px solid transparent",
-                    }}
-                  >
-                    <span className="text-lg">🏢</span>
-                    Channel Partner Users
-                  </button>
-                </Link>
-              )}
               {isAdmin && (
                 <Link
                   href="/developer-users"

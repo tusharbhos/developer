@@ -40,6 +40,13 @@ class CustomerSessionLink extends Model
     protected $appends = [
         'self_view_url',
         'self_view_expires_at',
+        'meeting_date',
+        'meeting_time',
+        'status',
+        'started_at',
+        'ended_at',
+        'joinees',
+        'event_count',
     ];
 
     public function getSelfViewUrlAttribute(): ?string
@@ -51,9 +58,61 @@ class CustomerSessionLink extends Model
 
     public function getSelfViewExpiresAtAttribute(): ?string
     {
-        $value = data_get($this->raw_response, 'self_view_expires_at');
+        $value = data_get($this->raw_response, 'self_view_expires_at')
+            ?: data_get($this->raw_response, 'expires_at');
 
         return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function getMeetingDateAttribute(): ?string
+    {
+        $scheduledFor = trim((string) data_get($this->raw_response, 'self_view_scheduled_for', ''));
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}/', $scheduledFor, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
+    public function getMeetingTimeAttribute(): ?string
+    {
+        $scheduledFor = trim((string) data_get($this->raw_response, 'self_view_scheduled_for', ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2})/', $scheduledFor, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
+    public function getStatusAttribute(): ?string
+    {
+        $value = data_get($this->raw_response, 'status');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function getStartedAtAttribute(): ?string
+    {
+        $value = data_get($this->raw_response, 'started_at');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function getEndedAtAttribute(): ?string
+    {
+        $value = data_get($this->raw_response, 'ended_at');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function getJoineesAttribute(): int
+    {
+        return (int) data_get($this->raw_response, 'joinees', 0);
+    }
+
+    public function getEventCountAttribute(): int
+    {
+        return (int) data_get($this->raw_response, 'event_count', 0);
     }
 
     public function user(): BelongsTo

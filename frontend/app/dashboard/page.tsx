@@ -13,6 +13,11 @@ import {
   CustomerSessionLinkAPI,
 } from "@/lib/api";
 import { formatDisplayMeeting } from "@/lib/dateTime";
+import {
+  getTimedMeetingStatus,
+  hasCompletedSessionEvidence,
+  hasViewerActivity,
+} from "@/lib/meetingStatus";
 import Header from "@/components/Header";
 
 type DashboardStatus =
@@ -176,15 +181,36 @@ function normalizeSessionStatus(
   rawStatus?: string,
   startedAt?: string,
   endedAt?: string,
+  meetingDate?: string,
+  meetingTime?: string,
+  hasSession = true,
+  joinees = 0,
+  eventCount = 0,
 ) {
   const normalized = String(rawStatus || "scheduled").toLowerCase();
-  if (endedAt) return "completed" as const;
+  const completedEvidence = hasCompletedSessionEvidence({
+    status: rawStatus,
+    startedAt,
+    endedAt,
+    joinees,
+    eventCount,
+  });
+  const viewerActivity = hasViewerActivity({ joinees, eventCount });
+  if (endedAt || normalized.includes("completed") || normalized.includes("ended")) {
+    return completedEvidence ? ("completed" as const) : ("scheduled" as const);
+  }
+  const timedStatus = getTimedMeetingStatus({
+    meetingDate,
+    meetingTime,
+    hasSession,
+    hasViewerActivity: viewerActivity,
+    completedEvidence,
+  });
+  if (timedStatus === "completed") return "completed" as const;
+  if (timedStatus === "live") return "live" as const;
   if (startedAt) return "live" as const;
   if (normalized.includes("live")) return "live" as const;
   if (normalized.includes("started")) return "live" as const;
-  if (normalized.includes("completed") || normalized.includes("ended")) {
-    return "completed" as const;
-  }
   return "scheduled" as const;
 }
 
@@ -661,7 +687,7 @@ export default function DashboardPage() {
   >("summary");
 
   const scopedRoles = useMemo(
-    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
+    () => new Set<string>(),
     [],
   );
   const restrictProjectsForRole = Boolean(
@@ -1012,15 +1038,20 @@ export default function DashboardPage() {
           analyticsSession?.events?.length ||
           0,
       );
+      const joinees = inferViewerCount(
+        snapshot?.joinees ?? analyticsSession?.joinees,
+        eventCount,
+        0,
+      );
       const status = normalizeSessionStatus(
         snapshot?.status || analyticsSession?.status,
         snapshot?.started_at || analyticsSession?.started_at,
         snapshot?.ended_at || analyticsSession?.ended_at,
-      );
-      const joinees = inferViewerCount(
-        snapshot?.joinees ?? analyticsSession?.joinees,
+        meeting?.meetingDate || link.meeting_date,
+        meeting?.meetingTime || link.meeting_time,
+        true,
+        joinees,
         eventCount,
-        feedbackCount,
       );
 
       acc.push({
@@ -1030,10 +1061,11 @@ export default function DashboardPage() {
         secretCode: customer.secret_code || "N/A",
         projectName,
         sessionToken: link.session_token,
-        meetingDate: meeting?.meetingDate || "",
-        meetingTime: meeting?.meetingTime || "",
+        meetingDate: meeting?.meetingDate || link.meeting_date || "",
+        meetingTime: meeting?.meetingTime || link.meeting_time || "",
         createdAt: link.created_at || "",
-        dateKey: meeting?.meetingDate || toDateKey(link.created_at),
+        dateKey:
+          meeting?.meetingDate || link.meeting_date || toDateKey(link.created_at),
         status,
         joinState: resolveJoinState(
           status,
@@ -1711,19 +1743,19 @@ export default function DashboardPage() {
                                                     color: "#166534",
                                                   }
                                                 : row.status === "live"
-                                                ? {
-                                                    bg: "rgba(239,68,68,0.16)",
-                                                    color: "#b91c1c",
-                                                  }
-                                                : row.status === "completed"
                                                   ? {
-                                                      bg: "rgba(107,114,128,0.18)",
-                                                      color: "#374151",
+                                                      bg: "rgba(239,68,68,0.16)",
+                                                      color: "#b91c1c",
                                                     }
-                                                  : {
-                                                      bg: "rgba(59,130,246,0.16)",
-                                                      color: "#1d4ed8",
-                                                    };
+                                                  : row.status === "completed"
+                                                    ? {
+                                                        bg: "rgba(107,114,128,0.18)",
+                                                        color: "#374151",
+                                                      }
+                                                    : {
+                                                        bg: "rgba(59,130,246,0.16)",
+                                                        color: "#1d4ed8",
+                                                      };
 
                                             return (
                                               <tr

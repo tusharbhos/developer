@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class CustomerSessionLinkController extends Controller
 {
@@ -309,9 +310,7 @@ class CustomerSessionLinkController extends Controller
                 (int) data_get($analyticsSession, 'joinees', 0),
                 (int) data_get($row->raw_response, 'joinees', 0),
             );
-            $joinees = $rawJoinees > 0 || ($eventCount === 0 && $feedbackCount === 0)
-                ? $rawJoinees
-                : 1;
+            $joinees = $rawJoinees > 0 || $eventCount > 0 ? max($rawJoinees, $eventCount > 0 ? 1 : 0) : 0;
             $rawStatus = (string) (
                 data_get($links, 'status')
                 ?: data_get($analyticsSession, 'status')
@@ -361,6 +360,7 @@ class CustomerSessionLinkController extends Controller
             'meeting_time' => ['required', 'date_format:H:i'],
             'expires_in_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
             'frontend_url' => ['nullable', 'url', 'max:2048'],
+            'calendar_visible' => ['nullable', 'boolean'],
         ]);
 
         $link = CustomerProjectLink::with([
@@ -394,22 +394,27 @@ class CustomerSessionLinkController extends Controller
         $existingSelfView = CustomerSessionLink::query()
             ->where('customer_id', $link->customer_id)
             ->where('project_name', $projectName)
+            ->where('raw_response->public_customer_link_id', $link->id)
+            ->where('raw_response->project_key', $projectKey)
+            ->whereNotNull('raw_response->self_view_url')
             ->orderByDesc('created_at')
-            ->get()
-            ->first(function (CustomerSessionLink $row) use ($link, $projectKey) {
-                $matchesPublicLink = (int) data_get($row->raw_response, 'public_customer_link_id') === (int) $link->id;
-                $matchesProjectKey = (string) data_get($row->raw_response, 'project_key', $projectKey) === $projectKey;
-
-                return $matchesPublicLink
-                    && $matchesProjectKey
-                    && is_string($row->self_view_url)
-                    && trim($row->self_view_url) !== '';
-            });
+            ->first();
 
         if ($existingSelfView && ! $this->isConectrSessionCompleted($existingSelfView)) {
+            if ((bool) ($v['calendar_visible'] ?? false)) {
+                $rawResponse = is_array($existingSelfView->raw_response)
+                    ? $existingSelfView->raw_response
+                    : [];
+                $existingSelfView->raw_response = array_merge($rawResponse, [
+                    'self_view_calendar_visible' => true,
+                    'self_view_scheduled_for' => $v['meeting_date'] . ' ' . $v['meeting_time'],
+                ]);
+                $existingSelfView->save();
+            }
+
             return response()->json([
                 'message' => 'Self-view link already exists.',
-                'data' => $existingSelfView,
+                'data' => $existingSelfView->fresh(),
                 'already_exists' => true,
             ]);
         }
@@ -430,6 +435,7 @@ class CustomerSessionLinkController extends Controller
 
         $payload = [
             'presentation_id' => $v['presentation_id'],
+            'presentation_code' => $v['presentation_id'],
             'presenter_name' => $owner?->name ?: 'Self View',
             'presenter_email' => $owner?->email,
             'presenter_id' => $owner?->id ? 'SP-' . str_pad((string) $owner->id, 3, '0', STR_PAD_LEFT) : null,
@@ -437,17 +443,24 @@ class CustomerSessionLinkController extends Controller
             'viewer_email' => $v['viewer_email'] ?? null,
             'viewer_phone' => $v['viewer_phone'] ?? null,
             'viewer_id' => $viewerId !== '' ? $viewerId : null,
+            'customer_name' => $v['viewer_name'],
+            'customer_email' => $v['viewer_email'] ?? null,
+            'customer_phone' => $v['viewer_phone'] ?? null,
+            'customer_id' => $viewerId !== '' ? $viewerId : null,
             'expires_in_hours' => (int) ($v['expires_in_hours'] ?? 72),
+            'mode' => 'self_view',
+            'source' => 'standalone',
+            'self_view' => true,
+            'self_view_only' => true,
         ];
 
         try {
-            $extRes = Http::acceptJson()
-                ->timeout(25)
-                ->withHeaders([
-                    'X-API-Key' => $apiKey,
-                    'X-Frontend-URL' => $frontendUrl,
-                ])
-                ->post("{$baseUrl}/api/sessions/create-link", $payload);
+            [$extRes, $providerPath, $triedProviderPaths] = $this->createProviderSelfViewLink(
+                $baseUrl,
+                $apiKey,
+                $frontendUrl,
+                $payload
+            );
         } catch (ConnectionException $e) {
             return response()->json([
                 'message' => 'ConectR service is unreachable right now.',
@@ -462,19 +475,29 @@ class CustomerSessionLinkController extends Controller
             return response()->json([
                 'message' => $extRes->json('message')
                     ?? $extRes->json('error')
+                    ?? $extRes->json('detail')
                     ?? ($providerBody !== '' ? $providerBody : 'Failed to generate self-view link.'),
                 'provider_status' => $status,
                 'provider_response' => $extRes->json(),
                 'provider_body' => $providerBody,
+                'provider_endpoint' => $providerPath,
+                'tried_provider_endpoints' => $triedProviderPaths,
             ], $status);
         }
 
         $body = $extRes->json();
-        if (! is_array($body) || empty($body['session_token']) || empty($body['presenter_link']) || empty($body['viewer_link'])) {
+        if (! is_array($body) || empty($body['self_view_url'])) {
             return response()->json([
-                'message' => 'Invalid ConectR response.',
+                'message' => 'Invalid self-view response. Expected self_view_url.',
                 'provider_response' => $body,
             ], 502);
+        }
+
+        $selfViewUrl = (string) $body['self_view_url'];
+        $sessionToken = trim((string) ($body['session_token'] ?? ''));
+        if ($sessionToken === '') {
+            $providerId = trim((string) ($body['id'] ?? ''));
+            $sessionToken = Str::isUuid($providerId) ? $providerId : (string) Str::uuid();
         }
 
         $saved = CustomerSessionLink::create([
@@ -490,15 +513,20 @@ class CustomerSessionLinkController extends Controller
             'viewer_email' => (string) ($v['viewer_email'] ?? ''),
             'viewer_phone' => (string) ($v['viewer_phone'] ?? ''),
             'viewer_platform_id' => (string) ($payload['viewer_id'] ?? ''),
-            'session_token' => (string) $body['session_token'],
+            'session_token' => $sessionToken,
             'session_code' => (string) ($body['session_code'] ?? ''),
             'join_code' => (string) ($body['join_code'] ?? ''),
-            'presenter_link' => (string) $body['presenter_link'],
-            'viewer_link' => (string) $body['viewer_link'],
-            'expires_at' => $body['expires_at'] ?? null,
+            'presenter_link' => $selfViewUrl,
+            'viewer_link' => $selfViewUrl,
+            'expires_at' => $body['self_view_expires_at'] ?? ($body['expires_at'] ?? null),
             'raw_response' => array_merge($body, [
                 'public_customer_link_id' => $link->id,
                 'project_key' => $projectKey,
+                'mode' => 'self_view',
+                'self_view_url' => $selfViewUrl,
+                'self_view_expires_at' => $body['self_view_expires_at'] ?? ($body['expires_at'] ?? null),
+                'provider_endpoint' => $providerPath,
+                'self_view_calendar_visible' => (bool) ($v['calendar_visible'] ?? false),
                 'self_view_requested_at' => now()->toIso8601String(),
                 'self_view_scheduled_for' => $v['meeting_date'] . ' ' . $v['meeting_time'],
             ]),
@@ -790,6 +818,42 @@ class CustomerSessionLinkController extends Controller
         ]);
     }
 
+    private function createProviderSelfViewLink(string $baseUrl, string $apiKey, string $frontendUrl, array $payload): array
+    {
+        $configuredPath = trim((string) config('services.conectr_session.self_view_path', ''));
+        $fallbackPaths = array_map(
+            'trim',
+            explode(',', (string) config('services.conectr_session.self_view_fallback_paths', ''))
+        );
+        $paths = array_values(array_unique(array_filter([
+            $configuredPath ?: '/api/self-view/create-link',
+            ...$fallbackPaths,
+        ])));
+        $timeout = max(3, min(25, (int) config('services.conectr_session.self_view_timeout', 10)));
+
+        $lastResponse = null;
+        $lastPath = $paths[0] ?? '/api/self-view/create-link';
+
+        foreach ($paths as $path) {
+            $lastPath = str_starts_with($path, '/') ? $path : '/' . $path;
+            $response = Http::acceptJson()
+                ->timeout($timeout)
+                ->withHeaders([
+                    'X-API-Key' => $apiKey,
+                    'X-Frontend-URL' => $frontendUrl,
+                ])
+                ->post("{$baseUrl}{$lastPath}", $payload);
+
+            $lastResponse = $response;
+
+            if (! in_array($response->status(), [404, 405], true)) {
+                return [$response, $lastPath, $paths];
+            }
+        }
+
+        return [$lastResponse, $lastPath, $paths];
+    }
+
     private function normalizeProjectName(string $value): string
     {
         return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value)));
@@ -869,6 +933,13 @@ class CustomerSessionLinkController extends Controller
 
     private function conectrSessionState(CustomerSessionLink $link): array
     {
+        if (data_get($link->raw_response, 'mode') === 'self_view') {
+            return [
+                'status' => data_get($link->raw_response, 'status', 'scheduled'),
+                'ended_at' => data_get($link->raw_response, 'ended_at'),
+            ];
+        }
+
         $apiKey = trim((string) config('services.conectr_session.api_key', ''));
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
         $token = trim((string) $link->session_token);
@@ -921,7 +992,7 @@ class CustomerSessionLinkController extends Controller
 
     private function isCalendarProjectScopedRole($user): bool
     {
-        return in_array($user->role, ['developer_super_admin', 'sourcing_admin', 'sales_user'], true);
+        return false;
     }
 
     private function allowedProjectMap($user): array

@@ -280,21 +280,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Sign Up */}
-        <p
-          className="text-center text-sm mt-5"
-          style={{ color: "var(--slate-600)" }}
-        >
-          {"Don't have an account? "}
-          <Link
-            href="/signup"
-            className="font-bold hover:underline"
-            style={{ color: "var(--orange-600)" }}
-          >
-            Sign Up
-          </Link>
-        </p>
-
         {/* ══════════════════════════════════════════════════
            🔥 ACTIVATE YOUR PROJECT — Developer CTA
         ══════════════════════════════════════════════════ */}

@@ -23,7 +23,6 @@ class CustomerProjectLinkController extends Controller
 
         $v = $request->validate([
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
-            'mask_identity' => ['nullable', 'boolean'],
             'selected_projects' => ['required', 'array'],
             'selected_projects.*.id' => ['nullable', 'integer'],
             'selected_projects.*.title' => ['required', 'string', 'max:255'],
@@ -36,7 +35,6 @@ class CustomerProjectLinkController extends Controller
             'selected_projects.*.possession' => ['nullable', 'string', 'max:120'],
             'selected_projects.*.status' => ['nullable', 'string', 'max:120'],
             'selected_projects.*.units_left' => ['nullable', 'integer'],
-            'selected_projects.*.mask_identity' => ['nullable', 'boolean'],
             'selected_projects.*.meeting_date' => ['nullable', 'date_format:Y-m-d'],
             'selected_projects.*.meeting_time' => ['nullable', 'date_format:H:i'],
         ]);
@@ -65,7 +63,7 @@ class CustomerProjectLinkController extends Controller
                 'public_token' => $this->generateUniqueToken(),
                 'selected_projects' => $merged,
                 'liked_projects' => $filteredLiked,
-                'mask_identity' => (bool) ($v['mask_identity'] ?? false),
+                'mask_identity' => false,
                 'card_attempts' => [],
                 'locked_project_keys' => [],
                 'status' => 'sent',
@@ -80,9 +78,9 @@ class CustomerProjectLinkController extends Controller
                 'user_id' => $user->id,
                 'customer_id' => $customer->id,
                 'public_token' => $this->generateUniqueToken(),
-                'selected_projects' => $v['selected_projects'],
+                'selected_projects' => $this->unmaskProjects($v['selected_projects']),
                 'liked_projects' => [],
-                'mask_identity' => (bool) ($v['mask_identity'] ?? false),
+                'mask_identity' => false,
                 'card_attempts' => [],
                 'locked_project_keys' => [],
                 'status' => 'sent',
@@ -173,10 +171,7 @@ class CustomerProjectLinkController extends Controller
             ->map(function ($project) use ($attempts, $lockedKeys) {
                 $row = (array) $project;
                 $key = $this->projectKey($row);
-                if ((bool) ($row['mask_identity'] ?? false)) {
-                    $row['title'] = '*****';
-                    $row['developer'] = '*****';
-                }
+                unset($row['mask_identity']);
                 $remaining = max(0, self::MAX_ATTEMPTS_PER_CARD - (int) ($attempts[$key] ?? 0));
                 $isLocked = in_array($key, $lockedKeys, true);
                 if ($isLocked) {
@@ -195,10 +190,7 @@ class CustomerProjectLinkController extends Controller
             ->map(function ($project) use ($attempts, $lockedKeys) {
                 $row = (array) $project;
                 $key = $this->projectKey($row);
-                if ((bool) ($row['mask_identity'] ?? false)) {
-                    $row['title'] = '*****';
-                    $row['developer'] = '*****';
-                }
+                unset($row['mask_identity']);
                 $remaining = max(0, self::MAX_ATTEMPTS_PER_CARD - (int) ($attempts[$key] ?? 0));
                 $isLocked = in_array($key, $lockedKeys, true);
                 if ($isLocked) {
@@ -221,7 +213,6 @@ class CustomerProjectLinkController extends Controller
                 'selected_projects' => $selected,
                 'liked_projects' => $liked,
                 'self_view_links' => $selfViewLinks,
-                'mask_identity' => (bool) $link->mask_identity,
                 'expires_at' => optional($link->expires_at)->toIso8601String(),
                 'is_disabled' => (bool) $link->is_disabled,
                 'max_attempts_per_card' => self::MAX_ATTEMPTS_PER_CARD,
@@ -247,7 +238,6 @@ class CustomerProjectLinkController extends Controller
             'liked_projects.*.possession' => ['nullable', 'string', 'max:120'],
             'liked_projects.*.status' => ['nullable', 'string', 'max:120'],
             'liked_projects.*.units_left' => ['nullable', 'integer'],
-            'liked_projects.*.mask_identity' => ['nullable', 'boolean'],
             'liked_projects.*.meeting_date' => ['nullable', 'date', 'after_or_equal:today'],
             'liked_projects.*.meeting_time' => ['nullable', 'date_format:H:i'],
         ]);
@@ -367,7 +357,7 @@ class CustomerProjectLinkController extends Controller
 
     private function isProjectScopedRole($user): bool
     {
-        return in_array($user->role, ['developer_super_admin', 'sourcing_admin', 'sales_user'], true);
+        return false;
     }
 
     private function findAccessibleLink($user, int $id): CustomerProjectLink
@@ -395,7 +385,7 @@ class CustomerProjectLinkController extends Controller
             if ($key === '') {
                 continue;
             }
-            $map[$key] = $project;
+            $map[$key] = $this->unmaskProject((array) $project);
         }
 
         foreach ($newProjects as $project) {
@@ -404,10 +394,25 @@ class CustomerProjectLinkController extends Controller
                 continue;
             }
             // Always prefer latest incoming payload to replace stale/masked rows.
-            $map[$key] = $project;
+            $map[$key] = $this->unmaskProject((array) $project);
         }
 
         return array_values($map);
+    }
+
+    private function unmaskProjects(array $projects): array
+    {
+        return array_values(array_map(
+            fn($project) => $this->unmaskProject((array) $project),
+            $projects,
+        ));
+    }
+
+    private function unmaskProject(array $project): array
+    {
+        unset($project['mask_identity']);
+
+        return $project;
     }
 
     private function projectKey(array $project): string

@@ -83,7 +83,7 @@ export default function DeveloperUsersPage() {
   const roleClass = (role: string) =>
     role === "developer_super_admin"
       ? "role-developer-super-admin"
-      : "role-company-user";
+      : "";
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/");
