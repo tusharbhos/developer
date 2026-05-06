@@ -70,7 +70,7 @@ export default function HomePage() {
           <div className="max-w-7xl mx-auto">
             <p className="page-banner-sub">Welcome</p>
             <h2 className="page-banner-title">
-              Hello {user?.name || "Channel Partner"}, choose your workspace
+              Hello {user?.name || "conectr"}, choose your workspace
             </h2>
           </div>
         </div>

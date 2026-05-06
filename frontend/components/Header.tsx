@@ -94,7 +94,7 @@ export default function Header({ variant = "landing" }: HeaderProps) {
             {!logoError ? (
               <Image
                 src="/logo.png"
-                alt="ChannelPartner.Network"
+                alt="conectr.co"
                 fill
                 sizes="(max-width:640px) 130px, 192px"
                 className="bg-white rounded-md"
@@ -111,7 +111,7 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                 className="text-white font-bold"
                 style={{ fontSize: "clamp(0.85rem,3vw,1rem)" }}
               >
-                ChannelPartner.Network
+                conectr.co
               </span>
             )}
           </div>

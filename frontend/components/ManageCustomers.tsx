@@ -35,8 +35,8 @@ export default function ManageCustomers({
     } else if (sortBy === "status") {
       return (b.is_active || 0) - (a.is_active || 0);
     }
-    return (a.nickname || a.name || "").localeCompare(
-      b.nickname || b.name || "",
+    return (a.name || a.nickname || "").localeCompare(
+      b.name || b.nickname || "",
     );
   });
 
@@ -48,7 +48,7 @@ export default function ManageCustomers({
     try {
       setExporting(true);
       const data = customers.map((c) => ({
-        Name: c.nickname || c.name || "N/A",
+        Name: c.name || c.nickname || "N/A",
         "Secret Code": c.secret_code || "N/A",
         Email: c.email || "N/A",
         Phone: c.phone || "N/A",
@@ -233,7 +233,7 @@ export default function ManageCustomers({
                             style={{ color: "var(--navy-900)" }}
                             className="font-semibold"
                           >
-                            {customer.nickname || customer.name || "N/A"}
+                            {customer.name || customer.nickname || "N/A"}
                           </p>
                           <p
                             style={{ color: "var(--navy-600)" }}
@@ -326,7 +326,7 @@ export default function ManageCustomers({
                         style={{ color: "var(--navy-900)" }}
                         className="font-bold"
                       >
-                        {customer.nickname || customer.name || "N/A"}
+                        {customer.name || customer.nickname || "N/A"}
                       </p>
                       <p
                         style={{ color: "var(--navy-600)" }}

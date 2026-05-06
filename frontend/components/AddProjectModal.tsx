@@ -85,19 +85,19 @@ export default function AddProjectModal({
 
   // WhatsApp message with proper link formatting (plain text, no HTML)
   const buildWhatsAppMessage = () => {
-    const websiteUrl = "https://channelpartner.network";
+    const websiteUrl = "https://conectr.co";
     const displayCompany =
       company_name && company_name.trim() !== ""
         ? company_name
-        : "Channel Partner Company";
+        : "conectr Company";
     const displayUserName =
-      userName && userName.trim() !== "" ? userName : "Channel Partner";
+      userName && userName.trim() !== "" ? userName : "conectr";
 
     return `Hello *${form.managerName}*,
 
-I recently saw a network designed for *Channel Partners* that allows us to sell your project in a better way. I would like to suggest that you *Activate* your Projects on this network so that it helps me, my team, as well as other Channel Partners like me to sale your Projects in a better way.
+I recently saw a network designed for *conectr* that allows us to sell your project in a better way. I would like to suggest that you *Activate* your Projects on this network so that it helps me, my team, as well as other conectr like me to sale your Projects in a better way.
 
-I have shared your phone no with channel partner network team, they shall connect with you. Or you, can visit: ${websiteUrl} or call them at +91-9767176377
+I have shared your phone no with conectr network team, they shall connect with you. Or you, can visit: ${websiteUrl} or call them at +91-9767176377
 
 -- ${displayUserName},
 -- ${displayCompany}`;
@@ -105,19 +105,19 @@ I have shared your phone no with channel partner network team, they shall connec
 
   // Email message with proper link formatting (plain text, mailto will handle it)
   const buildEmailBodyPlain = () => {
-    const websiteUrl = "https://channelpartner.network/";
+    const websiteUrl = "https://conectr.co/";
     const displayCompany =
       company_name && company_name.trim() !== ""
         ? company_name
         : "[Your Company]";
     const displayUserName =
-      userName && userName.trim() !== "" ? userName : "Channel Partner";
+      userName && userName.trim() !== "" ? userName : "conectr";
 
     return `Hello ${form.managerName},
 
-I recently saw a network designed for Channel Partners that allows us to sell your project in a better way. I would like to suggest that you Activate your Projects on this network so that it helps me, my team, as well as other Channel Partners like me to sale your Projects in a better way.
+I recently saw a network designed for conectr that allows us to sell your project in a better way. I would like to suggest that you Activate your Projects on this network so that it helps me, my team, as well as other conectr like me to sale your Projects in a better way.
 
-I have shared your phone no with channelpartner.network team, they shall connect with you. Or you, can visit: ${websiteUrl} or call them at +91-9767176377
+I have shared your phone no with conectr.co team, they shall connect with you. Or you, can visit: ${websiteUrl} or call them at +91-9767176377
 
 -- ${displayUserName},
 -- ${displayCompany}`;
@@ -199,14 +199,14 @@ I have shared your phone no with channelpartner.network team, they shall connect
   };
 
   const getDisplayUserName = () => {
-    return userName && userName.trim() !== "" ? userName : "Channel Partner";
+    return userName && userName.trim() !== "" ? userName : "conectr";
   };
 
   // Message Preview component with clickable link
   const MessagePreview = () => {
     const displayCompany = getDisplayCompany();
     const displayUserName = getDisplayUserName();
-    const websiteUrl = "https://channelpartner.network/";
+    const websiteUrl = "https://conectr.co/";
 
     return (
       <div
@@ -218,10 +218,10 @@ I have shared your phone no with channelpartner.network team, they shall connect
         </p>
         <p>
           I recently saw a network designed for{" "}
-          <strong>Channel Partners</strong> that allows us to sell your project
+          <strong>conectr</strong> that allows us to sell your project
           in a better way. I would like to suggest that you{" "}
           <strong>Activate</strong> your Projects on this network so that it
-          helps me, my team, as well as other Channel Partners like me to sale
+          helps me, my team, as well as other conectr like me to sale
           your Projects in a better way.
         </p>
         <p>
@@ -233,7 +233,7 @@ I have shared your phone no with channelpartner.network team, they shall connect
               rel="noopener noreferrer"
               style={{ color: "var(--navy-600)", textDecoration: "underline" }}
             >
-              channelpartner.network
+              conectr.co
             </a>
           </strong>{" "}
           team, they shall connect with you. Or you, can visit:{" "}

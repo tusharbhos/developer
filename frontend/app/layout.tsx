@@ -4,9 +4,9 @@ import { AuthProvider } from "../context/AuthContext";
 import { CartProvider } from "../context/CartContext";
 
 export const metadata: Metadata = {
-  title: "ChannelPartner.Network | Ramanora Global Pvt Ltd",
-  description: "The ultimate real estate channel partner network platform",
-  keywords: "real estate, channel partner, RERA, property, India",
+  title: "Conectr.co | Ramanora Global Pvt Ltd",
+  description: "The ultimate real estate conectr network platform",
+  keywords: "real estate, conectr, RERA, property, India",
 };
 
 export default function RootLayout({

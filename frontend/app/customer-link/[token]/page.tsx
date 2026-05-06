@@ -590,6 +590,7 @@ export default function PublicCustomerLinkPage() {
           ended_at: res.data.ended_at,
           is_completed: false,
           self_view_url: res.data.self_view_url,
+          self_view_url_with_phone: res.data.self_view_url_with_phone,
           self_view_expires_at: res.data.self_view_expires_at,
           viewer_link: res.data.viewer_link,
           meeting_date: date,
@@ -697,9 +698,11 @@ export default function PublicCustomerLinkPage() {
   };
 
   const copySelfViewLink = async () => {
-    if (!selfViewLink?.self_view_url) return;
+    const link =
+      selfViewLink?.self_view_url_with_phone || selfViewLink?.self_view_url;
+    if (!link) return;
     try {
-      await navigator.clipboard.writeText(selfViewLink.self_view_url);
+      await navigator.clipboard.writeText(link);
       setSelfViewCopied(true);
       setTimeout(() => setSelfViewCopied(false), 1600);
     } catch {
@@ -736,6 +739,7 @@ export default function PublicCustomerLinkPage() {
           >
             Hello{" "}
             {linkData?.customer?.name ||
+              linkData?.customer?.name ||
               linkData?.customer?.nickname ||
               "Customer"}
           </h1>
@@ -1218,7 +1222,9 @@ export default function PublicCustomerLinkPage() {
                                   </div>
                                 )}
 
-                              {!isLocked && selfViewForCard?.self_view_url && (
+                              {!isLocked &&
+                                (selfViewForCard?.self_view_url_with_phone ||
+                                  selfViewForCard?.self_view_url) && (
                                 <div
                                   style={{
                                     background: "#eff6ff",
@@ -1252,7 +1258,8 @@ export default function PublicCustomerLinkPage() {
                                     className="text-xs mt-1 break-all"
                                     style={{ color: "#475569" }}
                                   >
-                                    {selfViewForCard.self_view_url}
+                                    {selfViewForCard.self_view_url_with_phone ||
+                                      selfViewForCard.self_view_url}
                                   </p>
                                   <div className="flex gap-2 flex-wrap mt-2">
                                     <button
@@ -1263,7 +1270,8 @@ export default function PublicCustomerLinkPage() {
                                       }}
                                       onClick={() =>
                                         window.open(
-                                          selfViewForCard.self_view_url,
+                                          selfViewForCard.self_view_url_with_phone ||
+                                            selfViewForCard.self_view_url,
                                           "_blank",
                                         )
                                       }
@@ -1279,7 +1287,9 @@ export default function PublicCustomerLinkPage() {
                                       onClick={async () => {
                                         try {
                                           await navigator.clipboard.writeText(
-                                            selfViewForCard.self_view_url || "",
+                                            selfViewForCard.self_view_url_with_phone ||
+                                              selfViewForCard.self_view_url ||
+                                              "",
                                           );
                                           setCardCopiedSelfViewId(
                                             selfViewForCard.id,
@@ -1567,7 +1577,9 @@ export default function PublicCustomerLinkPage() {
                     </div>
                   )}
 
-                {selfViewLink?.self_view_url && visitMode === "self" && (
+                {(selfViewLink?.self_view_url_with_phone ||
+                  selfViewLink?.self_view_url) &&
+                  visitMode === "self" && (
                   <div
                     className="mt-3 p-3 rounded-lg"
                     style={{
@@ -1585,13 +1597,18 @@ export default function PublicCustomerLinkPage() {
                       className="text-xs mb-2 break-all"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
-                      {selfViewLink.self_view_url}
+                      {selfViewLink.self_view_url_with_phone ||
+                        selfViewLink.self_view_url}
                     </p>
                     <div className="flex gap-2 flex-wrap">
                       <button
                         className="btn btn-primary"
                         onClick={() =>
-                          window.open(selfViewLink.self_view_url, "_blank")
+                          window.open(
+                            selfViewLink.self_view_url_with_phone ||
+                              selfViewLink.self_view_url,
+                            "_blank",
+                          )
                         }
                       >
                         View Now
@@ -1663,7 +1680,9 @@ export default function PublicCustomerLinkPage() {
                               true,
                             );
                             const selfViewUrl =
+                              scheduledSelfView?.self_view_url_with_phone ||
                               scheduledSelfView?.self_view_url ||
+                              selfViewLink.self_view_url_with_phone ||
                               selfViewLink.self_view_url ||
                               "";
                             if (!selfViewUrl) return;
@@ -1682,7 +1701,7 @@ export default function PublicCustomerLinkPage() {
                             window.open(url, "_blank");
                           }}
                         >
-                          Save to Google Calendar
+                          Save to Calendar
                         </button>
                       </div>
                     )}

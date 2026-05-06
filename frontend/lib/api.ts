@@ -328,6 +328,7 @@ export interface PublicSelfViewLink {
   ended_at?: string | null;
   is_completed?: boolean;
   self_view_url?: string;
+  self_view_url_with_phone?: string;
   self_view_expires_at?: string;
   viewer_link?: string;
   meeting_date?: string;
@@ -359,7 +360,9 @@ export interface CustomerSessionLink {
   event_count?: number;
   presenter_link: string;
   viewer_link: string;
+  viewer_link_with_phone?: string;
   self_view_url?: string;
+  self_view_url_with_phone?: string;
   self_view_expires_at?: string;
   meeting_date?: string;
   meeting_time?: string;
@@ -442,6 +445,8 @@ export interface CreateCustomerSessionLinkPayload {
   viewer_id?: string;
   frontend_url?: string;
   expires_in_hours?: number;
+  meeting_date?: string;
+  meeting_time?: string;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

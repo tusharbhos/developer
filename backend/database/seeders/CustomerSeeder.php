@@ -18,7 +18,7 @@ class CustomerSeeder extends Seeder
         if ($users->isEmpty()) {
             $demoUser = User::create([
                 'name' => 'Demo User',
-                'email' => 'demo@channelpartner.network',
+                'email' => 'demo@conectr.co',
                 'password' => bcrypt('demo123'),
                 'company_name' => 'Demo Realty',
                 'rera_no' => 'RERA-DEMO-001',

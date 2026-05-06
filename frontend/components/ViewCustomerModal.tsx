@@ -243,7 +243,7 @@ export default function ViewCustomerModal({
   // ── WhatsApp reminder ────────────────────────────────
   const sendWhatsApp = (proj: ProjectMeeting) => {
     if (!customer.phone) return;
-    const msg = `Hello ${customer.name || customer.nickname},\n\nReminder: Your site visit for *${proj.project_name}* is scheduled on ${formatDisplayMeeting(proj.meeting_date, proj.meeting_time)}.\n\nRegards,\nChannelPartner.Network`;
+    const msg = `Hello ${customer.name || customer.nickname},\n\nReminder: Your site visit for *${proj.project_name}* is scheduled on ${formatDisplayMeeting(proj.meeting_date, proj.meeting_time)}.\n\nRegards,\nconectr.co`;
     const digits = String(customer.phone).replace(/\D/g, "");
     const phone =
       digits.length === 10
@@ -279,7 +279,7 @@ export default function ViewCustomerModal({
         {/* ── Header ── */}
         <div className="modal-header">
           <div>
-            <p className="modal-title">{customer.nickname}</p>
+            <p className="modal-title">{customer.name || customer.nickname}</p>
             <p className="modal-subtitle">
               Code:{" "}
               <span className="font-mono font-bold">

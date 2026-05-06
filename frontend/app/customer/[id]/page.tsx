@@ -134,6 +134,7 @@ type ConectrAnalyticsResponse = {
     presenter_name?: string;
     viewer_name?: string;
     created_at?: string;
+    started_at?: string;
     ended_at?: string;
     joinees?: number;
   };
@@ -145,6 +146,64 @@ type ConectrAnalyticsResponse = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function prettifyAnalyticsKey(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatCompactAnalyticsValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => formatCompactAnalyticsValue(item))
+      .filter((item) => item && item !== "-");
+    return parts.length > 0 ? parts.join(", ") : "-";
+  }
+  if (isRecord(value)) {
+    const name = typeof value.name === "string" ? value.name.trim() : "";
+    const countryCode =
+      typeof value.country_code === "string" ? value.country_code.trim() : "";
+    const phoneLocal =
+      typeof value.phone_local === "string" ? value.phone_local.trim() : "";
+    const phoneE164 =
+      typeof value.phone_e164 === "string" ? value.phone_e164.trim() : "";
+    const phone = phoneLocal
+      ? `${countryCode ? `${countryCode} ` : ""}${phoneLocal}`
+      : phoneE164;
+
+    if (name || phone) {
+      return [name ? `Name: ${name}` : "", phone ? `Phone: ${phone}` : ""]
+        .filter(Boolean)
+        .join(", ");
+    }
+
+    const countValue =
+      value.count ?? value.total ?? value.joinees ?? value.viewer_count;
+    if (
+      typeof countValue === "string" ||
+      typeof countValue === "number" ||
+      typeof countValue === "boolean"
+    ) {
+      return String(countValue);
+    }
+
+    const parts = Object.entries(value)
+      .filter(([, item]) => item !== null && item !== undefined && item !== "")
+      .map(
+        ([key, item]) =>
+          `${prettifyAnalyticsKey(key)}: ${formatCompactAnalyticsValue(item)}`,
+      );
+    return parts.length > 0 ? parts.join(", ") : "-";
+  }
+  return String(value);
 }
 
 function extractSummaryRecord(value: unknown): Record<string, unknown> | null {
@@ -181,6 +240,34 @@ function extractEventDetail(event: ConectrCustomerAnalyticsEvent): string {
   }
 
   return "-";
+}
+
+function getEventDetailRows(event: Record<string, unknown>) {
+  const directDetail = [event.label, event.action_type, event.option]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean);
+
+  if (directDetail.length > 0) {
+    return [{ key: "Action", value: directDetail.join(" | ") }];
+  }
+
+  const data = isRecord(event.data) ? event.data : null;
+  if (!data) return [];
+
+  const nestedRecord = [
+    data.answers,
+    data.form_data,
+    data.payload,
+    data.response,
+  ].find(isRecord);
+  const detailRecord = nestedRecord || data;
+
+  return Object.entries(detailRecord)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => ({
+      key,
+      value: formatCompactAnalyticsValue(value),
+    }));
 }
 
 function extractFeedbackSummaryRows(
@@ -1208,7 +1295,7 @@ export default function CustomerDetailsPage() {
     const phone = normalizePhoneForWhatsApp(customer.phone);
     if (!phone) return;
 
-    const msg = `Hello ${customer.name || customer.nickname},\n\nReminder: Your site visit for *${proj.project_name}* is scheduled on ${proj.meeting_date} at ${fmt12(proj.meeting_time)}.\n\nRegards,\nChannelPartner.Network`;
+    const msg = `Hello ${customer.name || customer.nickname},\n\nReminder: Your site visit for *${proj.project_name}* is scheduled on ${proj.meeting_date} at ${fmt12(proj.meeting_time)}.\n\nRegards,\nconectr.co`;
     openWhatsApp(phone, msg);
   };
 
@@ -1593,7 +1680,7 @@ export default function CustomerDetailsPage() {
                 fontFamily: "var(--font-display)",
               }}
             >
-              {customer.nickname} ({customer.secret_code})
+              {customer.name || customer.nickname} ({customer.secret_code})
             </h1>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -1641,7 +1728,7 @@ export default function CustomerDetailsPage() {
               {customer.name || customer.nickname}
             </p>
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-              Nickname: {customer.nickname}
+              Code: {customer.secret_code}
             </p>
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
               Code: {customer.secret_code}
@@ -2408,8 +2495,11 @@ export default function CustomerDetailsPage() {
                   (row.raw_response?.mode === "self_view" ||
                     row.self_view_url === row.viewer_link ||
                     row.self_view_url === row.presenter_link);
-                const visibleViewerLink = selfViewOnly ? "" : row.viewer_link;
+                const visibleViewerLink = selfViewOnly
+                  ? ""
+                  : row.viewer_link_with_phone || row.viewer_link;
                 const visibleSelfViewLink =
+                  row.self_view_url_with_phone ||
                   row.self_view_url ||
                   (selfViewOnly ? row.viewer_link || row.presenter_link : "");
 
@@ -3039,25 +3129,24 @@ export default function CustomerDetailsPage() {
                   },
                   {
                     label: "Joinees",
-                    value: String(
-                      analyticsModal.analytics.session?.joinees ?? "-",
+                    value: formatCompactAnalyticsValue(
+                      analyticsModal.analytics.session?.joinees,
                     ),
                   },
                   {
                     label: "Created",
-                    value: analyticsModal.analytics.session?.created_at
-                      ? new Date(
-                          analyticsModal.analytics.session.created_at,
-                        ).toLocaleString("en-IN")
-                      : "-",
+                    value: formatDateTimeValue(
+                      analyticsModal.analytics.session?.created_at ||
+                        analyticsModal.analytics.session?.started_at ||
+                        analyticsModal.sessionLink.created_at,
+                    ),
                   },
                   {
                     label: "Ended",
-                    value: analyticsModal.analytics.session?.ended_at
-                      ? new Date(
-                          analyticsModal.analytics.session.ended_at,
-                        ).toLocaleString("en-IN")
-                      : "-",
+                    value: formatDateTimeValue(
+                      analyticsModal.analytics.session?.ended_at ||
+                        analyticsModal.sessionLink.ended_at,
+                    ),
                   },
                 ].map((item) => (
                   <div
@@ -3267,12 +3356,16 @@ export default function CustomerDetailsPage() {
                         overflowX: "auto",
                         maxHeight: "26rem",
                         overflowY: "auto",
+                        border: "1px solid var(--slate-200)",
+                        borderRadius: "10px",
                       }}
                     >
                       <table
                         style={{
                           width: "100%",
+                          minWidth: "54rem",
                           borderCollapse: "collapse",
+                          tableLayout: "fixed",
                           fontSize: "0.8rem",
                         }}
                       >
@@ -3288,6 +3381,7 @@ export default function CustomerDetailsPage() {
                                 color: "#166534",
                                 borderBottom: "2px solid #86efac",
                                 whiteSpace: "nowrap",
+                                width: "3rem",
                               }}
                             >
                               #
@@ -3300,6 +3394,7 @@ export default function CustomerDetailsPage() {
                                 color: "#166534",
                                 borderBottom: "2px solid #86efac",
                                 whiteSpace: "nowrap",
+                                width: "10rem",
                               }}
                             >
                               Type
@@ -3311,6 +3406,7 @@ export default function CustomerDetailsPage() {
                                 fontWeight: 700,
                                 color: "#166534",
                                 borderBottom: "2px solid #86efac",
+                                width: "11rem",
                               }}
                             >
                               Slide
@@ -3322,6 +3418,7 @@ export default function CustomerDetailsPage() {
                                 fontWeight: 700,
                                 color: "#166534",
                                 borderBottom: "2px solid #86efac",
+                                width: "23rem",
                               }}
                             >
                               Label / Action
@@ -3334,6 +3431,7 @@ export default function CustomerDetailsPage() {
                                 color: "#166534",
                                 borderBottom: "2px solid #86efac",
                                 whiteSpace: "nowrap",
+                                width: "7rem",
                               }}
                             >
                               Duration (s)
@@ -3341,14 +3439,17 @@ export default function CustomerDetailsPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {analyticsModal.analytics.events.map((ev, i) => (
-                            <tr
-                              key={i}
-                              style={{
-                                background: i % 2 === 0 ? "#fff" : "#f8fafc",
-                                borderBottom: "1px solid var(--slate-100)",
-                              }}
-                            >
+                          {analyticsModal.analytics.events.map((ev, i) => {
+                            const detailRows = getEventDetailRows(ev);
+
+                            return (
+                              <tr
+                                key={i}
+                                style={{
+                                  background: i % 2 === 0 ? "#fff" : "#f8fafc",
+                                  borderBottom: "1px solid var(--slate-100)",
+                                }}
+                              >
                               <td
                                 style={{
                                   padding: "0.42rem 0.65rem",
@@ -3372,6 +3473,9 @@ export default function CustomerDetailsPage() {
                                 style={{
                                   padding: "0.42rem 0.65rem",
                                   color: "var(--color-text-secondary)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {String(ev.slide ?? "-")}
@@ -3380,12 +3484,56 @@ export default function CustomerDetailsPage() {
                                 style={{
                                   padding: "0.42rem 0.65rem",
                                   color: "var(--color-text-secondary)",
+                                  verticalAlign: "top",
                                 }}
                               >
-                                {(ev.label as string) ||
-                                  (ev.action_type as string) ||
-                                  (ev.option as string) ||
-                                  (ev.data ? JSON.stringify(ev.data) : "-")}
+                                {detailRows.length > 0 ? (
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gap: "0.35rem",
+                                    }}
+                                  >
+                                    {detailRows.map((row, rowIndex) => (
+                                      <div
+                                        key={`${row.key}-${rowIndex}`}
+                                        style={{
+                                          display: "grid",
+                                          gridTemplateColumns: "minmax(7rem, 42%) 1fr",
+                                          gap: "0.45rem",
+                                          alignItems: "start",
+                                          padding: "0.35rem 0.45rem",
+                                          border: "1px solid var(--slate-200)",
+                                          borderRadius: "8px",
+                                          background: "#fff",
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize: "0.68rem",
+                                            fontWeight: 700,
+                                            color: "var(--navy-700)",
+                                            overflowWrap: "anywhere",
+                                          }}
+                                        >
+                                          {prettifyKey(row.key)}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: "0.75rem",
+                                            color: "var(--color-text-secondary)",
+                                            overflowWrap: "anywhere",
+                                            lineHeight: 1.35,
+                                          }}
+                                        >
+                                          {row.value}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "-"
+                                )}
                               </td>
                               <td
                                 style={{
@@ -3399,7 +3547,8 @@ export default function CustomerDetailsPage() {
                                   : "-"}
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

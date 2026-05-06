@@ -118,7 +118,7 @@ class ActivationRequestController extends Controller
     }
 
     /**
-     * Authenticated user: give channel partner approval only once per project.
+     * Authenticated user: give conectr approval only once per project.
      */
     public function approve(Request $request, int $id): JsonResponse
     {

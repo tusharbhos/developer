@@ -26,14 +26,14 @@ class VerifyEmailNotification extends Notification
         $verificationUrl = $this->verificationUrl($notifiable);
 
         return (new MailMessage)
-            ->subject('Verify Your Email – ChannelPartner.Network')
+            ->subject('Verify Your Email – conectr.co')
             ->greeting("Hello {$notifiable->name}!")
-            ->line('Welcome to ChannelPartner.Network — India\'s #1 Channel Partner Platform.')
+            ->line('Welcome to conectr.co — India\'s #1 conectr Platform.')
             ->line('Please click the button below to verify your email address and activate your account.')
             ->action('Verify Email Address', $verificationUrl)
             ->line('This link will expire in 60 minutes.')
             ->line('If you did not create an account, no further action is required.')
-            ->salutation('— Team ChannelPartner.Network');
+            ->salutation('— Team conectr.co');
     }
 
     protected function verificationUrl(object $notifiable): string

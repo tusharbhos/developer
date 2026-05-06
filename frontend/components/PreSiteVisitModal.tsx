@@ -256,7 +256,6 @@ export default function PreSiteVisitModal({
     let nextCreatedLink: CustomerSessionLink | null = null;
 
     try {
-      // 1. Create session link on ConectR
       const linkRes = await CustomerSessionLinkAPI.create({
         customer_id: selectedCustomer.id,
         project_name: resolvedProjectName,
@@ -269,17 +268,11 @@ export default function PreSiteVisitModal({
         viewer_email: selectedCustomer.email || undefined,
         viewer_phone: selectedCustomer.phone || undefined,
         viewer_id: selectedCustomer.secret_code || undefined,
+        meeting_date: date,
+        meeting_time: time,
       });
       nextCreatedLink = linkRes.data;
       setCreatedLink(linkRes.data);
-
-      // 2. Schedule meeting on calendar at selected date for the same project row
-      await CustomerAPI.scheduleMeeting(selectedCustomer.id, {
-        meeting_date: date,
-        meeting_time: time,
-        project_name: resolvedProjectName,
-        session_link_id: linkRes.data.id,
-      });
 
       setStep("done");
       onScheduled();
@@ -317,8 +310,8 @@ export default function PreSiteVisitModal({
     const msg = encodeURIComponent(
       `Hi! Here is your Pre-Site Visit Matchmaking Session link for *${resolvedProjectName}*.\n\n` +
         `📅 Date: ${formatDisplayDate(date)}  ⏰ Time: ${format12HourTime(time)}\n\n` +
-        `🔗 Your Viewer Link:\n${createdLink.viewer_link}\n\n` +
-        `${createdLink.self_view_url ? `🧭 Self View Link:\n${createdLink.self_view_url}\n\n` : ""}` +
+        `🔗 Your Viewer Link:\n${createdLink.viewer_link_with_phone || createdLink.viewer_link}\n\n` +
+        `${createdLink.self_view_url || createdLink.self_view_url_with_phone ? `🧭 Self View Link:\n${createdLink.self_view_url_with_phone || createdLink.self_view_url}\n\n` : ""}` +
         `Click the link to join the session. See you there!`,
     );
     const url = phone
@@ -336,8 +329,8 @@ export default function PreSiteVisitModal({
     const body = encodeURIComponent(
       `Hi,\n\nYou are invited to a Pre-Site Visit Matchmaking Session for ${resolvedProjectName}.\n\n` +
         `Date: ${formatDisplayDate(date)}\nTime: ${format12HourTime(time)}\n\n` +
-        `Your Viewer Link: ${createdLink.viewer_link}\n` +
-        `${createdLink.self_view_url ? `Self View Link: ${createdLink.self_view_url}\n` : ""}` +
+        `Your Viewer Link: ${createdLink.viewer_link_with_phone || createdLink.viewer_link}\n` +
+        `${createdLink.self_view_url || createdLink.self_view_url_with_phone ? `Self View Link: ${createdLink.self_view_url_with_phone || createdLink.self_view_url}\n` : ""}` +
         `\nLooking forward to seeing you!`,
     );
     const email = selectedCustomer?.email ?? "";
@@ -574,8 +567,8 @@ export default function PreSiteVisitModal({
                                   onClick={() => {
                                     setSelectedCustomer(c);
                                     setCustomerSearch(
-                                      c.nickname ||
-                                        c.name ||
+                                      c.name ||
+                                        c.nickname ||
                                         c.secret_code ||
                                         "",
                                     );
@@ -584,7 +577,7 @@ export default function PreSiteVisitModal({
                                 >
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-semibold text-sm">
-                                      {c.nickname || c.name || "—"}
+                                      {c.name || c.nickname || "—"}
                                     </span>
                                     <span
                                       className="text-xs font-mono"
@@ -833,13 +826,20 @@ export default function PreSiteVisitModal({
                       className="text-xs mb-2 break-all"
                       style={{ color: "var(--color-text-muted)" }}
                     >
-                      {createdLink.viewer_link}
+                      {createdLink.viewer_link_with_phone ||
+                        createdLink.viewer_link}
                     </p>
                     <div className="flex gap-2 flex-wrap">
                       <button
                         className="btn btn-ghost"
                         style={{ fontSize: "0.78rem" }}
-                        onClick={() => copy(createdLink.viewer_link, "viewer")}
+                        onClick={() =>
+                          copy(
+                            createdLink.viewer_link_with_phone ||
+                              createdLink.viewer_link,
+                            "viewer",
+                          )
+                        }
                       >
                         {copied === "viewer" ? "✓ Copied!" : "📋 Copy"}
                       </button>
@@ -847,7 +847,11 @@ export default function PreSiteVisitModal({
                         className="btn btn-gold"
                         style={{ fontSize: "0.78rem" }}
                         onClick={() =>
-                          window.open(createdLink.viewer_link, "_blank")
+                          window.open(
+                            createdLink.viewer_link_with_phone ||
+                              createdLink.viewer_link,
+                            "_blank",
+                          )
                         }
                       >
                         Open ↗
@@ -876,7 +880,8 @@ export default function PreSiteVisitModal({
                   </div>
 
                   {/* Self-view link */}
-                  {createdLink.self_view_url && (
+                  {(createdLink.self_view_url_with_phone ||
+                    createdLink.self_view_url) && (
                     <div
                       className="card p-3"
                       style={{
@@ -898,14 +903,20 @@ export default function PreSiteVisitModal({
                         className="text-xs mb-2 break-all"
                         style={{ color: "var(--color-text-muted)" }}
                       >
-                        {createdLink.self_view_url}
+                        {createdLink.self_view_url_with_phone ||
+                          createdLink.self_view_url}
                       </p>
                       <div className="flex gap-2 flex-wrap">
                         <button
                           className="btn btn-ghost"
                           style={{ fontSize: "0.78rem" }}
                           onClick={() =>
-                            copy(createdLink.self_view_url || "", "self")
+                            copy(
+                              createdLink.self_view_url_with_phone ||
+                                createdLink.self_view_url ||
+                                "",
+                              "self",
+                            )
                           }
                         >
                           {copied === "self" ? "✓ Copied!" : "📋 Copy"}
@@ -914,7 +925,11 @@ export default function PreSiteVisitModal({
                           className="btn btn-gold"
                           style={{ fontSize: "0.78rem" }}
                           onClick={() =>
-                            window.open(createdLink.self_view_url, "_blank")
+                            window.open(
+                              createdLink.self_view_url_with_phone ||
+                                createdLink.self_view_url,
+                              "_blank",
+                            )
                           }
                         >
                           Open ↗

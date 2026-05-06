@@ -13,22 +13,22 @@ class AdminSeeder extends Seeder
     {
         // ── Create Master Admin ────────────────────────────
         User::updateOrCreate(
-            ['email' => 'admin@channelpartner.network'],
+            ['email' => 'admin@conectr.co'],
             [
                 'name'               => 'Master Admin',
-                'email'              => 'admin@channelpartner.network',
+                'email'              => 'admin@conectr.co',
                 'password'           => Hash::make('Admin@123456'),
                 'role'               => 'admin',
                 'is_active'          => true,
                 'email_verified_at'  => now(), // Admin is pre-verified
-                'company_name'       => 'ChannelPartner.Network',
+                'company_name'       => 'conectr.co',
                 'rera_no'            => 'ADMIN-001',
                 'phone'              => '9999999999',
                 'address'            => 'Mumbai, Maharashtra',
             ]
         );
 
-        $this->command->info('✅ Admin created: admin@channelpartner.network / Admin@123456');
+        $this->command->info('✅ Admin created: admin@conectr.co / Admin@123456');
 
         // ── Seed Mock Projects ─────────────────────────────
         $projects = [

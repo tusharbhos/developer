@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
@@ -173,6 +173,8 @@ export default function CartPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
   const { cartItems, removeFromCart, addToCart, clearCart } = useCart();
+  const clearCartRef = useRef(clearCart);
+  const clearCartAfterLeavingRef = useRef(false);
 
   // All projects
   const [allProjects, setAllProjects] = useState<ApiProject[]>([]);
@@ -228,6 +230,18 @@ export default function CartPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }, []);
+
+  useEffect(() => {
+    clearCartRef.current = clearCart;
+  }, [clearCart]);
+
+  useEffect(() => {
+    return () => {
+      if (clearCartAfterLeavingRef.current) {
+        clearCartRef.current();
+      }
+    };
   }, []);
 
   const normalizePhoneForWhatsApp = useCallback((rawPhone: string) => {
@@ -462,7 +476,7 @@ export default function CartPage() {
       setGeneratedMessage(messageSnapshot);
       setGeneratedProjectCount(projectCountSnapshot);
       setShowShareOptions(false);
-      clearCart();
+      clearCartAfterLeavingRef.current = true;
       setSuccess("Link created successfully.");
     } catch (e: unknown) {
       setError(
@@ -831,8 +845,8 @@ export default function CartPage() {
                         {customers.map((customer) => {
                           return (
                             <option key={customer.id} value={customer.id}>
-                              {customer.nickname || customer.name
-                                ? `${customer.nickname || customer.name} · ${customer.secret_code}`
+                              {customer.name || customer.nickname
+                                ? `${customer.name || customer.nickname} · ${customer.secret_code}`
                                 : customer.secret_code}
                             </option>
                           );
@@ -871,8 +885,18 @@ export default function CartPage() {
                   </button>
 
                   {generatedLink && (
-                    <div className="mt-3">
-                      <p className="text-[11px] text-gray-600 break-all mb-2">
+                    <div
+                      className="mt-3 p-3 rounded-xl border"
+                      style={{
+                        background: "#ecfdf5",
+                        borderColor: "#86efac",
+                        color: "#14532d",
+                      }}
+                    >
+                      <p className="text-xs font-bold mb-1">
+                        Customer Link Created
+                      </p>
+                      <p className="text-[11px] break-all mb-3">
                         {generatedLink}
                       </p>
                       <div className="grid grid-cols-2 gap-2">

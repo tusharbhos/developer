@@ -356,7 +356,7 @@ const SALES_VELOCITIES = ["Fast", "Moderate", "Slow", "Stuck"];
 const DEVELOPER_POSITIONS = ["Tier 1", "Known", "Emerging"];
 const LOADING_MESSAGES = [
   "Analyzing market positioning…",
-  "Evaluating channel partner fit…",
+  "Evaluating conectr fit…",
   "Estimating distribution effort…",
   "Preparing activation plan…",
 ];
@@ -612,7 +612,7 @@ export default function ActivateProjectPage() {
           <a href="/" style={{ textDecoration: "none" }}>
             <img
               src="/logo.png"
-              alt="ChannelPartner.Network"
+              alt="conectr.co"
               style={{ height: 42, objectFit: "contain" }}
             />
           </a>
@@ -753,7 +753,7 @@ export default function ActivateProjectPage() {
                   fontStyle: "italic",
                 }}
               >
-                Only for developers serious about channel-partner-led sales
+                Only for developers serious about conectr-led sales
               </p>
             </div>
           </div>
@@ -1037,7 +1037,7 @@ export default function ActivateProjectPage() {
             </div>
             {[
               {
-                title: "🎯 Channel Partner Activation Scope",
+                title: "🎯 conectr Activation Scope",
                 rows: [
                   ["Recommended Plan", assessment.plan.name],
                   [
@@ -1313,7 +1313,7 @@ export default function ActivateProjectPage() {
               </h2>
               <p style={{ fontSize: "0.82rem", color: "var(--slate-500)" }}>
                 Provide your details to activate your project with
-                ChannelPartner.Network
+                conectr.co
               </p>
             </div>
             {/* Summary */}
@@ -1467,7 +1467,7 @@ export default function ActivateProjectPage() {
                 onClick={goNext}
                 disabled={submitting}
               >
-                {submitting ? "Submitting…" : "Submit For Channel Partner Approval →"}
+                {submitting ? "Submitting…" : "Submit For conectr Approval →"}
               </button>
               <button
                 className="btn btn-ghost"

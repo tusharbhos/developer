@@ -125,7 +125,7 @@ function VerifyEmailContent() {
         <div className="flex justify-center mb-5">
           <img
             src="/logo.png"
-            alt="ChannelPartner.Network"
+            alt="conectr.co"
             style={{ height: "52px", width: "auto", objectFit: "contain" }}
           />
         </div>
@@ -178,7 +178,7 @@ function VerifyEmailContent() {
           className="text-xs font-bold uppercase tracking-[0.22em] mb-2"
           style={{ color: cardTone.accent }}
         >
-          ChannelPartner.Network
+          conectr.co
         </p>
         <h1
           className="text-2xl font-bold mb-2"

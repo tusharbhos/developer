@@ -38,7 +38,9 @@ class CustomerSessionLink extends Model
     ];
 
     protected $appends = [
+        'viewer_link_with_phone',
         'self_view_url',
+        'self_view_url_with_phone',
         'self_view_expires_at',
         'meeting_date',
         'meeting_time',
@@ -49,9 +51,23 @@ class CustomerSessionLink extends Model
         'event_count',
     ];
 
+    public function getViewerLinkWithPhoneAttribute(): ?string
+    {
+        $value = data_get($this->raw_response, 'viewer_link_with_phone');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
     public function getSelfViewUrlAttribute(): ?string
     {
         $value = data_get($this->raw_response, 'self_view_url');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function getSelfViewUrlWithPhoneAttribute(): ?string
+    {
+        $value = data_get($this->raw_response, 'self_view_url_with_phone');
 
         return is_string($value) && trim($value) !== '' ? $value : null;
     }

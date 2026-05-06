@@ -825,7 +825,7 @@ export default function DashboardPage() {
               {
                 key: `site-${link.id}-${preferredSiteVisit.date}-${preferredSiteVisit.time}-${submittedAt || index}`,
                 customerId: customer.id,
-                customerName: customer.nickname || "N/A",
+                customerName: customer.name || customer.nickname || "N/A",
                 secretCode: customer.secret_code || "N/A",
                 projectName,
                 sessionToken: link.session_token,
@@ -1057,7 +1057,7 @@ export default function DashboardPage() {
       acc.push({
         key: `${link.id}`,
         customerId: customer.id,
-        customerName: customer.nickname || "N/A",
+        customerName: customer.name || customer.nickname || "N/A",
         secretCode: customer.secret_code || "N/A",
         projectName,
         sessionToken: link.session_token,
@@ -1097,7 +1097,7 @@ export default function DashboardPage() {
         .map((project, index) => ({
           key: `sched-${customer.id}-${index}-${normalizeProjectName(project.project_name)}`,
           customerId: customer.id,
-          customerName: customer.nickname || "N/A",
+          customerName: customer.name || customer.nickname || "N/A",
           secretCode: customer.secret_code || "N/A",
           projectName: project.project_name || "N/A",
           sessionToken: undefined,
@@ -1518,7 +1518,7 @@ export default function DashboardPage() {
                       <th className="px-3 py-2 text-left">Sr No</th>
                       <th className="px-3 py-2 text-left">Project</th>
                       <th className="px-3 py-2 text-left">
-                        Customer Nicknames
+                        Customer Names
                       </th>
                     </tr>
                     <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
@@ -1647,7 +1647,7 @@ export default function DashboardPage() {
                                             }}
                                           >
                                             <th className="px-2 py-2 text-left">
-                                              Customer Nickname
+                                              Customer Name
                                             </th>
                                             <th className="px-2 py-2 text-left">
                                               Secret Code
@@ -1697,7 +1697,7 @@ export default function DashboardPage() {
                                                     }),
                                                   )
                                                 }
-                                                placeholder="Search customer nickname"
+                                                placeholder="Search customer name"
                                               />
                                             </th>
                                             <th className="px-2 py-2">
@@ -1938,7 +1938,7 @@ export default function DashboardPage() {
                                                   color: "var(--navy-600)",
                                                 }}
                                               >
-                                                No customer nickname rows found
+                                                No customer name rows found
                                                 for search.
                                               </td>
                                             </tr>

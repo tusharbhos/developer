@@ -159,10 +159,10 @@ class AuthController extends Controller
 
         try {
             Mail::raw(
-                "Your ChannelPartner.Network password reset code is {$cpCode}. This code will expire in 15 minutes.",
+                "Your conectr.co password reset code is {$cpCode}. This code will expire in 15 minutes.",
                 function ($message) use ($email) {
                     $message->to($email)
-                        ->subject('ChannelPartner Password Reset Code');
+                        ->subject('conectr.co Password Reset Code');
                 }
             );
         } catch (Throwable $e) {

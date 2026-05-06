@@ -48,11 +48,11 @@ export default function LoginPage() {
               fontFamily: "var(--font-display)",
             }}
           >
-            A controlled network where serious Channel Partners drive real
+            A controlled network where serious conectr drive real
             project sales.
           </h1>
           <p className="text-xs" style={{ color: "var(--slate-500)" }}>
-            *Access is limited to verified Channel Partners
+            *Access is limited to verified conectr
           </p>
         </div>
 
@@ -60,7 +60,7 @@ export default function LoginPage() {
         <div className="flex justify-center mb-6">
           <img
             src="/logo.png"
-            alt="ChannelPartner.Network"
+            alt="conectr.co"
             style={{ height: "52px", width: "auto", objectFit: "contain" }}
           />
         </div>
@@ -276,7 +276,7 @@ export default function LoginPage() {
             className="text-xs leading-snug"
             style={{ color: "var(--slate-600)" }}
           >
-            Used by verified Channel Partners across multiple projects
+            Used by verified conectrs across multiple projects
           </p>
         </div>
 
@@ -312,7 +312,7 @@ export default function LoginPage() {
             onClick={() => window.open("/channelpartner.pdf", "_blank")}
             className="px-5 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-semibold hover:bg-blue-200"
           >
-            Benefits for Channel Partner
+            Benefits for conectr
           </button>
           <button
             onClick={() => window.open("/forDevelopers.pdf", "_blank")}

@@ -332,8 +332,8 @@ function buildCalendarCustomer(
     id: sessionLink.customer_id,
     user_id: sessionLink.customer.user_id ?? 0,
     nickname:
-      sessionLink.customer.nickname ||
       sessionLink.customer.name ||
+      sessionLink.customer.nickname ||
       `Customer ${sessionLink.customer_id}`,
     secret_code:
       sessionLink.customer.secret_code || `CUS-${sessionLink.customer_id}`,
@@ -511,15 +511,15 @@ function getEntryPalette(entry: CalendarEntry) {
 
 function getEntryDisplayLabel(entry: CalendarEntry) {
   if (entry.kind === "site-visit") {
-    return entry.customer.secret_code || entry.customer.nickname;
+    return entry.customer.secret_code || entry.customer.name || entry.customer.nickname;
   }
-  return entry.customer.nickname;
+  return entry.customer.name || entry.customer.nickname;
 }
 
 function getEntryCalendarPillLabel(entry: CalendarEntry) {
   const time = entry.meeting_time ? fmt12(entry.meeting_time) : "-";
   const secretCode = entry.customer.secret_code || "-";
-  const nickname = entry.customer.nickname || "-";
+  const nickname = entry.customer.name || entry.customer.nickname || "-";
 
   return {
     time,
@@ -791,7 +791,7 @@ function SiteVisitDetailsModal({
               margin: "0 0 4px",
             }}
           >
-            {entry.customer.nickname}
+            {entry.customer.name || entry.customer.nickname}
           </p>
           <span
             className="secret-code"
@@ -2089,7 +2089,7 @@ export default function CalendarPage() {
                                             color: pal.text,
                                           }}
                                         >
-                                          {entry.customer.nickname}
+                                          {entry.customer.name || entry.customer.nickname}
                                         </p>
                                         <span
                                           style={{
@@ -2224,7 +2224,7 @@ export default function CalendarPage() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {entry.customer.nickname}
+                          {entry.customer.name || entry.customer.nickname}
                         </span>
                         <span
                           className="secret-code"
