@@ -19,7 +19,6 @@ export default function ScheduleMeetingModal({
   const isEdit = !!customer;
 
   const [formData, setFormData] = useState({
-    nickname: "",
     name: "",
     email: "",
     phone: "",
@@ -33,7 +32,6 @@ export default function ScheduleMeetingModal({
   useEffect(() => {
     if (customer) {
       setFormData({
-        nickname: customer.nickname || "",
         name: customer.name || "",
         email: customer.email || "",
         phone: customer.phone || "",
@@ -47,20 +45,30 @@ export default function ScheduleMeetingModal({
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]:
+        name === "phone"
+          ? value.replace(/\D/g, "").slice(-10)
+          : value,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!formData.nickname.trim()) {
-      setError("Please enter customer name/nickname");
+    const customerName = formData.name.trim();
+    const customerNickname = customerName;
+    const customerPhone = formData.phone.replace(/\D/g, "").slice(-10);
+
+    if (!customerName) {
+      setError("Please enter customer name");
       return;
     }
 
-    if (!formData.email.trim()) {
-      setError("Please enter email");
+    if (formData.phone.trim() && customerPhone.length !== 10) {
+      setError("Please enter a valid 10-digit phone number.");
       return;
     }
 
@@ -68,10 +76,10 @@ export default function ScheduleMeetingModal({
       setLoading(true);
 
       const payload: Partial<Customer> = {
-        nickname: formData.nickname,
-        name: formData.name,
+        nickname: customerNickname,
+        name: customerName,
         email: formData.email,
-        phone: formData.phone,
+        phone: customerPhone,
         address: formData.address,
         is_active: formData.status === "active" ? 1 : 0,
       };
@@ -137,45 +145,23 @@ export default function ScheduleMeetingModal({
             paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))",
           }}
         >
-          {/* Nickname */}
+          {/* Name */}
           <div>
             <label
               className="block text-sm font-semibold mb-2"
               style={{ color: "var(--navy-900)" }}
             >
-              Customer Name / Nickname *
-            </label>
-            <input
-              type="text"
-              name="nickname"
-              value={formData.nickname}
-              onChange={handleChange}
-              placeholder="e.g., John Doe, ABC Company"
-              className="w-full px-4 py-2 rounded-lg border-2 transition focus:outline-none"
-              style={{
-                borderColor: error ? "var(--orange-600)" : "var(--navy-300)",
-                background: "rgba(255,255,255,0.9)",
-              }}
-            />
-          </div>
-
-          {/* Full Name */}
-          <div>
-            <label
-              className="block text-sm font-semibold mb-2"
-              style={{ color: "var(--navy-900)" }}
-            >
-              Full Name
+              Customer Name *
             </label>
             <input
               type="text"
               name="name"
               value={formData.name}
               onChange={handleChange}
-              placeholder="Full name (optional)"
-              className="w-full px-4 py-2 rounded-lg border-2"
+              placeholder="e.g., John Doe, ABC Company"
+              className="w-full px-4 py-2 rounded-lg border-2 transition focus:outline-none"
               style={{
-                borderColor: "var(--navy-300)",
+                borderColor: error ? "var(--orange-600)" : "var(--navy-300)",
                 background: "rgba(255,255,255,0.9)",
               }}
             />
@@ -216,7 +202,7 @@ export default function ScheduleMeetingModal({
               name="phone"
               value={formData.phone}
               onChange={handleChange}
-              placeholder="+91 9999999999"
+              placeholder="10-digit number"
               className="w-full px-4 py-2 rounded-lg border-2"
               style={{
                 borderColor: "var(--navy-300)",

@@ -351,8 +351,9 @@ export default function CustomerSessionLinkModal({
                     : row.presenter_link;
                   const visibleViewerLink = selfViewOnly
                     ? ""
-                    : row.viewer_link;
+                    : row.viewer_link_with_phone || row.viewer_link;
                   const visibleSelfViewLink =
+                    row.self_view_url_with_phone ||
                     row.self_view_url ||
                     (selfViewOnly ? row.presenter_link || row.viewer_link : "");
 

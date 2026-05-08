@@ -99,7 +99,7 @@ const DEVELOPER_POSITIONS = ["Tier 1", "Known", "Emerging"];
 
 const LOADING_MESSAGES = [
   "Analyzing market positioning…",
-  "Evaluating channel partner fit…",
+  "Evaluating conectr fit…",
   "Estimating distribution effort…",
   "Preparing activation plan…",
 ];
@@ -579,7 +579,7 @@ export default function ActivateProjectWizard() {
           <div style={{ textAlign: "center", marginBottom: 16, paddingTop: 8 }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, var(--orange-500), var(--orange-600))", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: "#fff", fontSize: 14, fontFamily: "var(--font-display)" }}>CP</div>
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: "0.88rem", fontFamily: "var(--font-display)" }}>ChannelPartner.Network</span>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: "0.88rem", fontFamily: "var(--font-display)" }}>conectr.co</span>
             </div>
           </div>
 
@@ -636,7 +636,7 @@ export default function ActivateProjectWizard() {
                   <input type="date" className="glass-input" value={form.possession_date} onChange={e => set("possession_date", e.target.value)} />
                 </div>
                 <button className="btn-gold" onClick={goNext}>Next →</button>
-                <p className="trust-line">Only for developers serious about channel-partner-led sales</p>
+                <p className="trust-line">Only for developers serious about conectr-led sales</p>
               </div>
             </div>
           )}
@@ -752,7 +752,7 @@ export default function ActivateProjectWizard() {
               <div className="card-body">
                 {/* CP Activation Scope */}
                 <div className="result-section">
-                  <div className="result-section-title">🎯 Channel Partner Activation Scope</div>
+                  <div className="result-section-title">🎯 conectr Activation Scope</div>
                   <div className="result-row">
                     <span className="result-label">Recommended Plan</span>
                     <span className="result-value">{assessment.plan.name}</span>
@@ -858,7 +858,7 @@ export default function ActivateProjectWizard() {
 
                 <div className="alert-box alert-info">
                   <span style={{ fontSize: "0.9rem", flexShrink: 0 }}>💡</span>
-                  <span>This investment aligns with the effort required to activate and convert your current inventory through a controlled channel partner network.</span>
+                  <span>This investment aligns with the effort required to activate and convert your current inventory through a controlled conectr network.</span>
                 </div>
 
                 <button className="btn-gold" onClick={() => setStep(7)}>Submit Activation Request →</button>
@@ -876,7 +876,7 @@ export default function ActivateProjectWizard() {
             <div className="glass-card animate-in">
               <div className="card-header">
                 <h2>Submit Activation</h2>
-                <p>Provide your details to activate your project with ChannelPartner.Network</p>
+                <p>Provide your details to activate your project with conectr.co</p>
               </div>
               <div className="card-body">
                 {/* Summary */}

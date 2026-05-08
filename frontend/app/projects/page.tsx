@@ -192,7 +192,7 @@ function AddProjectBanner({ onAdd }: { onAdd: () => void }) {
             className="text-xs mt-0.5"
             style={{ color: "var(--color-text-muted)" }}
           >
-            Request to activate any project on ChannelPartner.Network
+            Request to activate any project on conectr.co
           </p>
         </div>
       </div>
@@ -696,7 +696,7 @@ function ProjectApprovalHubModal({
                 fontWeight: 800,
               }}
             >
-              Project Approval - Channel Partner Approval
+              Project Approval - conectr Approval
             </h3>
             <p
               style={{
@@ -1349,7 +1349,7 @@ export default function ProjectsPage() {
       <AddProjectModal
         isOpen={addProjectOpen}
         onClose={() => setAddProjectOpen(false)}
-        userName={user?.name ?? "Channel Partner"}
+        userName={user?.name ?? "conectr"}
         company_name={user?.company_name ?? ""}
         onSuccess={() => {
           setToast("Project request submitted successfully.");
@@ -1462,7 +1462,7 @@ export default function ProjectsPage() {
                       lineHeight: 1.35,
                     }}
                   >
-                    Projects Pending Channel Partner Approval
+                    Projects Pending conectr Approval
                   </p>
                   <p
                     style={{

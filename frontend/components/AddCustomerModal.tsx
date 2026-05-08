@@ -13,7 +13,8 @@ interface Props {
 
 export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
   const { user } = useAuth();
-  const [nickname, setNickname] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [secretCode, setSecretCode] = useState("");
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,6 +47,11 @@ export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
     return `${prefix}-${rawCode}`;
   };
 
+  const normalizePhone = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  };
+
   useEffect(() => {
     generateCode();
   }, []);
@@ -74,8 +80,26 @@ export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
     setError("");
     setSaving(true);
     try {
+      const cleanName = name.trim();
+      const cleanNickname = cleanName;
+      const cleanPhone = normalizePhone(phone);
+
+      if (!cleanName) {
+        setError("Please enter customer name.");
+        setSaving(false);
+        return;
+      }
+
+      if (phone.trim() && cleanPhone.length !== 10) {
+        setError("Please enter a valid 10-digit phone number.");
+        setSaving(false);
+        return;
+      }
+
       const payload: Partial<Customer> = { status: "active" };
-      if (nickname.trim()) payload.nickname = nickname.trim();
+      if (cleanNickname) payload.nickname = cleanNickname;
+      if (cleanName) payload.name = cleanName;
+      if (cleanPhone) payload.phone = cleanPhone;
       if (secretCode.trim()) payload.secret_code = secretCode.trim();
 
       const res = await CustomerAPI.create(payload);
@@ -121,16 +145,29 @@ export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="modal-body space-y-4">
-          {/* Nickname */}
           <div>
-            <label className="label">Nickname</label>
+            <label className="label">
+              Customer Name <span className="req">*</span>
+            </label>
             <input
               type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="e.g. Rahul Bhai, Party A"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Rahul Sharma"
               className="input-field"
               autoFocus
+            />
+          </div>
+
+          {false && (
+            <div style={{ display: "none" }}>
+              <label className="label">Name</label>
+            <input
+              type="text"
+              value=""
+              onChange={() => undefined}
+              placeholder="e.g. Rahul Bhai, Party A"
+              className="input-field"
             />
             <p
               className="text-xs mt-1"
@@ -138,7 +175,25 @@ export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
             >
               Internal alias — only visible to you
             </p>
-          </div>
+            </div>
+          )}
+
+          <div>
+            <label className="label">Phone Number</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(normalizePhone(e.target.value))}
+              placeholder="10-digit number"
+              className="input-field"
+            />
+            <p
+              className="text-xs mt-1"
+              style={{ color: "var(--color-text-hint)" }}
+            >
+              Optional. Used for WhatsApp and phone-capture links.
+            </p>
+            </div>
 
           {/* Secret Code */}
           <div>
@@ -204,7 +259,8 @@ export default function AddCustomerModal({ onClose, onAdded, zIndex }: Props) {
               />
             </svg>
             <span>
-              Full details (name, phone, meeting) can be added later via Edit.
+              Customer code is auto-generated. Phone is optional and can be
+              edited later.
             </span>
           </div>
         </form>

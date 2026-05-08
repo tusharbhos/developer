@@ -31,7 +31,6 @@ export default function EditCustomerModal({
   onUpdated,
 }: Props) {
   const [form, setForm] = useState({
-    nickname: customer.nickname,
     name: customer.name ?? "",
     phone: customer.phone ?? "",
     email: customer.email ?? "",
@@ -48,13 +47,16 @@ export default function EditCustomerModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!form.nickname.trim()) {
-      setError("Nickname is required.");
+    if (!form.name.trim()) {
+      setError("Customer name is required.");
       return;
     }
     setSaving(true);
     try {
-      await CustomerAPI.update(customer.id, form);
+      await CustomerAPI.update(customer.id, {
+        ...form,
+        nickname: form.name.trim(),
+      });
       const fresh = await CustomerAPI.get(customer.id);
       onUpdated(fresh.data);
     } catch (e: unknown) {
@@ -107,18 +109,18 @@ export default function EditCustomerModal({
 
         {/* ── Body ── */}
         <form onSubmit={handleSubmit} className="modal-body space-y-4">
-          {/* Nickname + Status */}
+          {/* Name + Status */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">
-                Nickname <span className="req">*</span>
+                Customer Name <span className="req">*</span>
               </label>
               <input
                 type="text"
-                value={form.nickname}
-                onChange={(e) => set("nickname", e.target.value)}
+                value={form.name}
+                onChange={(e) => set("name", e.target.value)}
                 className="input-field"
-                placeholder="Nickname"
+                placeholder="Customer full name"
               />
             </div>
             <div>
@@ -149,18 +151,8 @@ export default function EditCustomerModal({
             </div>
           </div>
 
-          {/* Name + Phone */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Full Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                className="input-field"
-                placeholder="Customer full name"
-              />
-            </div>
+          {/* Phone */}
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="label">Phone</label>
               <input

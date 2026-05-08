@@ -90,6 +90,8 @@ class CustomerSessionLinkController extends Controller
             'viewer_id' => ['nullable', 'string', 'max:120'],
             'frontend_url' => ['nullable', 'url', 'max:2048'],
             'expires_in_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
+            'meeting_date' => ['nullable', 'date', 'after_or_equal:today'],
+            'meeting_time' => ['nullable', 'date_format:H:i'],
         ]);
 
         $customer = $this->findScopedCustomer($actor, (int) $v['customer_id']);
@@ -104,6 +106,12 @@ class CustomerSessionLinkController extends Controller
                     'message' => 'You can create session links only for your assigned projects.',
                 ], 422);
             }
+        }
+
+        $requestedProjectName = trim((string) ($v['project_name'] ?? ''));
+        if (! empty($v['meeting_date']) && ! empty($v['meeting_time']) && $requestedProjectName !== '') {
+            $this->assertValidSlot($v['meeting_time']);
+            $this->assertNoConflictForProjects($customer, $v['meeting_date'], $v['meeting_time'], $requestedProjectName);
         }
 
         $apiKey = trim((string) config('services.conectr_session.api_key', ''));
@@ -202,8 +210,17 @@ class CustomerSessionLinkController extends Controller
         ]);
 
         if ($projectName !== '') {
-            $summary = $this->buildProjectSessionSummary($customer->id, $projectName);
+            $customerChanged = false;
+            if (! empty($v['meeting_date']) && ! empty($v['meeting_time'])) {
+                $this->syncMeetingForCreatedSession($customer, $actor, $projectName, $v['meeting_date'], $v['meeting_time']);
+                $customerChanged = true;
+            }
+
+            $summary = $this->buildProjectSessionSummary($customer->id, $projectName, $saved);
             if ($customer->syncProjectSessionSummary($projectName, $summary)) {
+                $customerChanged = true;
+            }
+            if ($customerChanged) {
                 $customer->save();
             }
         }
@@ -721,7 +738,26 @@ class CustomerSessionLinkController extends Controller
         $query->where('user_id', $actor->id);
     }
 
-    private function buildProjectSessionSummary(int $customerId, string $projectName): array
+    private function syncMeetingForCreatedSession(Customer $customer, $actor, string $projectName, string $meetingDate, string $meetingTime): void
+    {
+        $this->assertValidSlot($meetingTime);
+        $this->assertNoConflictForProjects($customer, $meetingDate, $meetingTime, $projectName);
+
+        $customer->addProjectMeeting([
+            'project_name' => $projectName,
+            'meeting_date' => $meetingDate,
+            'meeting_time' => $meetingTime,
+            'scheduled_at' => now()->toDateTimeString(),
+            'created_by_id' => $actor->id,
+            'created_by_name' => $actor->name,
+        ]);
+
+        $customer->meeting_date = $meetingDate;
+        $customer->meeting_time = $meetingTime;
+        $customer->project_name = $projectName;
+    }
+
+    private function buildProjectSessionSummary(int $customerId, string $projectName, ?CustomerSessionLink $latestHint = null): array
     {
         $normalizedProjectName = $this->normalizeProjectName($projectName);
         if ($normalizedProjectName === '') {
@@ -733,14 +769,29 @@ class CustomerSessionLinkController extends Controller
             ];
         }
 
+        if (
+            $latestHint
+            && (int) $latestHint->customer_id === $customerId
+            && $this->normalizeProjectName((string) ($latestHint->project_name ?? '')) === $normalizedProjectName
+        ) {
+            $count = CustomerSessionLink::query()
+                ->where('customer_id', $customerId)
+                ->where('project_name', $latestHint->project_name)
+                ->count();
+
+            return [
+                'has_session_link' => true,
+                'session_link_count' => $count,
+                'latest_session_link_id' => $latestHint->id,
+                'latest_session_created_at' => $latestHint->created_at?->toDateTimeString(),
+            ];
+        }
+
         $rows = CustomerSessionLink::query()
             ->where('customer_id', $customerId)
+            ->where('project_name', $projectName)
             ->orderByDesc('created_at')
-            ->get()
-            ->filter(function (CustomerSessionLink $row) use ($normalizedProjectName) {
-                return $this->normalizeProjectName((string) ($row->project_name ?? '')) === $normalizedProjectName;
-            })
-            ->values();
+            ->get();
 
         /** @var CustomerSessionLink|null $latest */
         $latest = $rows->first();
@@ -929,6 +980,50 @@ class CustomerSessionLinkController extends Controller
 
         return in_array($status, ['completed', 'ended'], true)
             || trim((string) ($snapshot['ended_at'] ?? '')) !== '';
+    }
+
+    private function assertValidSlot(string $time): void
+    {
+        $parts = explode(':', $time);
+        if (count($parts) !== 2) {
+            abort(422, 'Meeting time format is invalid.');
+        }
+
+        $mins = (int) $parts[1];
+        if (! in_array($mins, [0, 30], true)) {
+            abort(422, 'Meeting time must be on a 30-minute slot (e.g. 10:00 or 10:30).');
+        }
+    }
+
+    private function assertNoConflictForProjects(Customer $customer, string $date, string $time, ?string $excludeProject = null): void
+    {
+        $newMins = $this->toMins($time);
+        $excludeProjectName = $excludeProject ? $this->normalizeProjectName($excludeProject) : null;
+
+        foreach (($customer->projects ?? []) as $project) {
+            $projectName = trim((string) ($project['project_name'] ?? ''));
+            if ($projectName === '') {
+                continue;
+            }
+
+            if ($excludeProjectName && $this->normalizeProjectName($projectName) === $excludeProjectName) {
+                continue;
+            }
+
+            if (($project['meeting_date'] ?? null) !== $date || empty($project['meeting_time'])) {
+                continue;
+            }
+
+            if (abs($this->toMins((string) $project['meeting_time']) - $newMins) < 30) {
+                abort(422, "This customer already has a meeting for '{$projectName}' near this time. Please choose another time.");
+            }
+        }
+    }
+
+    private function toMins(string $time): int
+    {
+        [$h, $m] = array_map('intval', explode(':', $time));
+        return $h * 60 + $m;
     }
 
     private function conectrSessionState(CustomerSessionLink $link): array

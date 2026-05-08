@@ -447,13 +447,11 @@ class CustomerProjectLinkController extends Controller
 
         return CustomerSessionLink::query()
             ->where('customer_id', $link->customer_id)
+            ->where('raw_response->public_customer_link_id', $link->id)
+            ->whereNotNull('raw_response->self_view_url')
             ->orderByDesc('created_at')
             ->get()
-            ->filter(function (CustomerSessionLink $row) use ($link) {
-                return (int) data_get($row->raw_response, 'public_customer_link_id') === (int) $link->id
-                    && is_string($row->self_view_url)
-                    && trim($row->self_view_url) !== '';
-            })
+            ->filter(fn(CustomerSessionLink $row) => is_string($row->self_view_url) && trim($row->self_view_url) !== '')
             ->map(function (CustomerSessionLink $row) use ($projectKeyByName) {
                 $projectName = trim((string) ($row->project_name ?? ''));
                 $projectKey = $projectKeyByName[strtolower($projectName)] ?? ('title-' . strtolower($projectName));
@@ -466,10 +464,11 @@ class CustomerProjectLinkController extends Controller
                     $meetingTime = $matches[2];
                 }
 
-                $sessionState = $this->conectrSessionState($row);
-                $status = mb_strtolower(trim((string) ($sessionState['status'] ?? 'scheduled')));
+                $statusText = (string) data_get($row->raw_response, 'status', 'scheduled');
+                $endedAt = data_get($row->raw_response, 'ended_at');
+                $status = mb_strtolower(trim($statusText));
                 $isCompleted = in_array($status, ['completed', 'ended'], true)
-                    || trim((string) ($sessionState['ended_at'] ?? '')) !== '';
+                    || trim((string) $endedAt) !== '';
 
                 return [
                     'id' => $row->id,
@@ -477,12 +476,13 @@ class CustomerProjectLinkController extends Controller
                     'project_name' => $projectName,
                     'presentation_id' => $row->presentation_id,
                     'session_token' => $row->session_token,
-                    'status' => $sessionState['status'] ?? 'scheduled',
-                    'ended_at' => $sessionState['ended_at'] ?? null,
+                    'status' => $statusText ?: 'scheduled',
+                    'ended_at' => $endedAt,
                     'is_completed' => $isCompleted,
                     'self_view_url' => $row->self_view_url,
+                    'self_view_url_with_phone' => $row->self_view_url_with_phone,
                     'self_view_expires_at' => $row->self_view_expires_at,
-                    'viewer_link' => $row->viewer_link,
+                    'viewer_link' => $row->self_view_url_with_phone ?: $row->viewer_link,
                     'meeting_date' => $meetingDate,
                     'meeting_time' => $meetingTime,
                     'created_at' => optional($row->created_at)->toIso8601String(),

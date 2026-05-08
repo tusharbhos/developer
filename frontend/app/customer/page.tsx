@@ -517,7 +517,7 @@ function LinkPreviewModal({
           <div>
             <p className="modal-title">Customer Project Link Preview</p>
             <p className="modal-subtitle">
-              {customer.nickname} ({customer.secret_code})
+              {customer.name || customer.nickname} ({customer.secret_code})
             </p>
           </div>
           <button className="modal-close" onClick={onClose}>
@@ -564,7 +564,7 @@ function LinkPreviewModal({
                     className="text-sm"
                     style={{ color: "var(--color-text-muted)" }}
                   >
-                    Nickname: {customer.nickname}
+                    Code: {customer.secret_code}
                   </p>
                   <p
                     className="text-sm"
@@ -1228,7 +1228,7 @@ export default function CustomerPage() {
     const q = search.toLowerCase();
     return (
       !q ||
-      c.nickname.toLowerCase().includes(q) ||
+      (c.name || c.nickname || "").toLowerCase().includes(q) ||
       c.secret_code.toLowerCase().includes(q) ||
       (c.name && c.name.toLowerCase().includes(q)) ||
       (c.phone && c.phone.includes(q))
@@ -1385,7 +1385,7 @@ export default function CustomerPage() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search nickname, code, name…"
+                placeholder="Search name, code, phone..."
                 className="input-field pl-9"
               />
             </div>
@@ -1449,7 +1449,7 @@ export default function CustomerPage() {
                     <thead>
                       <tr>
                         {[
-                          "Nickname",
+                          "Name",
                           "Secret Code",
                           ...(canSeeCreatedBy ? ["Created By"] : []),
                           "Customer",
@@ -1491,7 +1491,7 @@ export default function CustomerPage() {
                                   className="font-bold text-sm"
                                   style={{ color: "var(--navy-900)" }}
                                 >
-                                  {c.nickname}
+                                  {c.name || c.nickname}
                                 </span>
                                 {isAdmin && (
                                   <>
@@ -1691,7 +1691,7 @@ export default function CustomerPage() {
                           className="font-bold text-sm truncate"
                           style={{ color: "var(--navy-900)" }}
                         >
-                          {c.nickname}
+                          {c.name || c.nickname}
                         </p>
                         <span className="secret-code mt-0.5 inline-block">
                           {c.secret_code}

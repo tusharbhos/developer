@@ -196,8 +196,8 @@ export default function ProjectCustomerLinkModal({
                     {customers.map((customer) => {
                       return (
                         <option key={customer.id} value={customer.id}>
-                          {customer.nickname || customer.name
-                            ? `${customer.nickname || customer.name} · ${customer.secret_code}`
+                          {customer.name || customer.nickname
+                            ? `${customer.name || customer.nickname} · ${customer.secret_code}`
                             : customer.secret_code}
                         </option>
                       );
@@ -235,7 +235,7 @@ export default function ProjectCustomerLinkModal({
                     >
                       {customerDisplayName(selectedCustomer)}
                     </p>
-                    <p>Nickname: {selectedCustomer.nickname}</p>
+                    <p>Name: {selectedCustomer.name || selectedCustomer.nickname}</p>
                     <p>Code: {selectedCustomer.secret_code}</p>
                     <p>Phone: {selectedCustomer.phone || "-"}</p>
                   </div>

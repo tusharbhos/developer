@@ -154,9 +154,13 @@ export default function MeetingModal({
     };
   }, [customer.id, entry.project_name]);
 
-  const viewerLink = sessionLink?.viewer_link || "";
+  const viewerLink =
+    sessionLink?.viewer_link_with_phone || sessionLink?.viewer_link || "";
   const presenterLink = sessionLink?.presenter_link || "";
-  const selfViewLink = sessionLink?.self_view_url || "";
+  const selfViewLink =
+    sessionLink?.self_view_url_with_phone ||
+    sessionLink?.self_view_url ||
+    "";
   const sameLink = (left: string, right: string) =>
     left.trim() !== "" && left.trim() === right.trim();
   const isSelfViewOnlySession =
@@ -168,19 +172,21 @@ export default function MeetingModal({
   const visibleViewerLink = isSelfViewOnlySession ? "" : viewerLink;
   const visibleSelfViewLink =
     selfViewLink || (isSelfViewOnlySession ? presenterLink || viewerLink : "");
+  const customerShareLink =
+    visibleViewerLink || visibleSelfViewLink || viewerLink || selfViewLink || "";
 
   /* ── sender signature from logged-in user ── */
   const senderName = user?.name ?? "";
   const companyName = user?.company_name ?? "";
 
   /* signature lines:
-     - if both exist  → "Rahul Sharma\nChannelPartner.Network"
+     - if both exist  → "Rahul Sharma\nconectr.co"
      - if only name   → "Rahul Sharma"
-     - if only company→ "ChannelPartner.Network"
-     - if neither     → "ChannelPartner.Network"  (fallback)            */
+     - if only company→ "conectr.co"
+     - if neither     → "conectr.co"  (fallback)            */
   const signatureLines =
     [senderName, companyName].filter(Boolean).join("\n") ||
-    "ChannelPartner.Network";
+    "conectr.co";
 
   const STATUS_STYLE: Record<
     string,
@@ -205,7 +211,7 @@ export default function MeetingModal({
     `Project : ${entry.project_name || "—"}`,
     `Date    : ${formattedDate}`,
     `Time    : ${formattedTime || "—"}`,
-    ...(viewerLink ? [`👁 Viewer Link: ${viewerLink}`, ``] : []),
+    ...(customerShareLink ? [`Customer Link: ${customerShareLink}`, ``] : []),
     ``,
     `Please feel free to reach out if you have any questions.`,
     ``,
@@ -221,7 +227,7 @@ export default function MeetingModal({
     `📋 Project : ${entry.project_name || "—"}`,
     `📅 Date    : ${formattedDate}`,
     `🕐 Time    : ${formattedTime || "—"}`,
-    ...(viewerLink ? [`🔗 Session Link: ${viewerLink}`] : []),
+    ...(customerShareLink ? [`Session Link: ${customerShareLink}`] : []),
     ``,
     `Regards,`,
     signatureLines,
@@ -240,6 +246,12 @@ export default function MeetingModal({
 
   /* ── handlers ── */
   const handleWhatsApp = () => {
+    if (!customerShareLink) {
+      setActionMsg("Create session link first, then share.");
+      setTimeout(() => setActionMsg(""), 2200);
+      return;
+    }
+
     if (currentPhone.length >= 10) {
       const whatsappUrl = `https://api.whatsapp.com/send?phone=${currentPhone}&text=${encodeURIComponent(waMsg)}`;
       const isAppleDevice = /iPad|iPhone|iPod|Macintosh/i.test(
@@ -260,6 +272,12 @@ export default function MeetingModal({
   };
 
   const handleEmail = () => {
+    if (!customerShareLink) {
+      setActionMsg("Create session link first, then share.");
+      setTimeout(() => setActionMsg(""), 2200);
+      return;
+    }
+
     if (!emailIsValid) {
       setShowEmailInput(true);
       setActionMsg("Add valid email to open Gmail compose.");
@@ -351,7 +369,7 @@ export default function MeetingModal({
                   margin: "0 0 4px",
                 }}
               >
-                {customer.nickname}
+                {customer.name || customer.nickname}
               </p>
               <span
                 className="secret-code"
@@ -778,7 +796,7 @@ export default function MeetingModal({
             )}
 
             {/* Action buttons */}
-            {!isRestrictedRole && (
+            {!isRestrictedRole && customerShareLink && (
               <div
                 style={{
                   display: "grid",
@@ -836,8 +854,8 @@ export default function MeetingModal({
                       lineHeight: 1.3,
                     }}
                   >
-                    {currentPhone.length === 10
-                      ? currentPhone
+                    {currentPhone
+                      ? `+${currentPhone}`
                       : "Add mobile number first"}
                   </span>
                 </button>
@@ -898,7 +916,9 @@ export default function MeetingModal({
               </div>
             )}
 
-            {!isRestrictedRole && (showPhoneInput || !customer.phone) && (
+            {!isRestrictedRole &&
+              customerShareLink &&
+              (showPhoneInput || !customer.phone) && (
               <div
                 style={{
                   display: "flex",
@@ -932,7 +952,9 @@ export default function MeetingModal({
               </div>
             )}
 
-            {!isRestrictedRole && (showEmailInput || !customer.email) && (
+            {!isRestrictedRole &&
+              customerShareLink &&
+              (showEmailInput || !customer.email) && (
               <div
                 style={{
                   display: "flex",
@@ -978,7 +1000,10 @@ export default function MeetingModal({
             )}
 
             {/* hint when no contact saved */}
-            {!isRestrictedRole && !customer.phone && !customer.email && (
+            {!isRestrictedRole &&
+              customerShareLink &&
+              !customer.phone &&
+              !customer.email && (
               <div
                 style={{
                   padding: "0.6rem 0.85rem",

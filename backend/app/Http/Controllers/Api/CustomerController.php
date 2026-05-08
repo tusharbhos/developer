@@ -136,7 +136,7 @@ class CustomerController extends Controller
             'nickname'     => ['nullable', 'string', 'max:100'],
             'secret_code'  => ['nullable', 'string', 'max:50', 'unique:customers,secret_code'],
             'name'         => ['nullable', 'string', 'max:255'],
-            'phone'        => ['nullable', 'string', 'regex:/^\d{10}$/'],
+            'phone'        => ['nullable', 'string', 'max:30'],
             'address'      => ['nullable', 'string'],
             'notes'        => ['nullable', 'string'],
             'status'       => ['nullable', 'in:active,inactive,Booked'],
@@ -147,7 +147,11 @@ class CustomerController extends Controller
             $secretCode = $this->generateUniqueCustomerCode();
         }
 
+        $v['phone'] = $this->normalizePhoneInput($v['phone'] ?? null);
         $nickname = trim((string) ($v['nickname'] ?? ''));
+        if ($nickname === '') {
+            $nickname = trim((string) ($v['name'] ?? '')) ?: $secretCode;
+        }
 
         $customer = Customer::create([
             ...$v,
@@ -187,11 +191,19 @@ class CustomerController extends Controller
         $v = $request->validate([
             'nickname'     => ['sometimes', 'string', 'max:100'],
             'name'         => ['nullable', 'string', 'max:255'],
-            'phone'        => ['nullable', 'string', 'regex:/^\d{10}$/'],
+            'phone'        => ['nullable', 'string', 'max:30'],
             'address'      => ['nullable', 'string'],
             'notes'        => ['nullable', 'string'],
             'status'       => ['nullable', 'in:active,inactive,Booked'],
         ]);
+
+        if (array_key_exists('phone', $v)) {
+            $v['phone'] = $this->normalizePhoneInput($v['phone'] ?? null);
+        }
+
+        if (array_key_exists('nickname', $v) && trim((string) $v['nickname']) === '') {
+            $v['nickname'] = trim((string) ($v['name'] ?? $customer->name ?? '')) ?: $customer->nickname;
+        }
 
         $customer->update($v);
         return response()->json(['message' => 'Customer updated.', 'data' => $customer->fresh('user:id,name,email,company_name')]);
@@ -582,6 +594,24 @@ class CustomerController extends Controller
     {
         [$h, $m] = array_map('intval', explode(':', $t));
         return sprintf('%d:%02d %s', $h % 12 ?: 12, $m, $h >= 12 ? 'PM' : 'AM');
+    }
+
+    private function normalizePhoneInput(?string $phone): ?string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $phone);
+        if ($digits === '') {
+            return null;
+        }
+
+        if (strlen($digits) > 10) {
+            $digits = substr($digits, -10);
+        }
+
+        if (! preg_match('/^\d{10}$/', $digits)) {
+            abort(422, 'Phone must be a valid 10-digit number.');
+        }
+
+        return $digits;
     }
 
     private function generateUniqueCustomerCode(): string
