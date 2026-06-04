@@ -137,11 +137,19 @@ type ConectrAnalyticsResponse = {
     started_at?: string;
     ended_at?: string;
     joinees?: number;
+    summary?: unknown;
+    ai_summary?: unknown;
+    analysis?: unknown;
+    analytics_summary?: unknown;
+    feedback_submissions?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
   };
   events?: Array<Record<string, unknown>>;
-  summary?: {
-    summary?: Record<string, unknown>;
-  };
+  feedback_submissions?: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown> | { summary?: Record<string, unknown> };
+  ai_summary?: unknown;
+  analysis?: unknown;
+  analytics_summary?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -212,6 +220,21 @@ function extractSummaryRecord(value: unknown): Record<string, unknown> | null {
   return value;
 }
 
+function extractAnalyticsSummaryRecord(
+  analytics?: ConectrAnalyticsResponse | null,
+) {
+  return (
+    extractSummaryRecord(analytics?.summary) ||
+    extractSummaryRecord(analytics?.session?.summary) ||
+    extractSummaryRecord(analytics?.ai_summary) ||
+    extractSummaryRecord(analytics?.session?.ai_summary) ||
+    extractSummaryRecord(analytics?.analysis) ||
+    extractSummaryRecord(analytics?.session?.analysis) ||
+    extractSummaryRecord(analytics?.analytics_summary) ||
+    extractSummaryRecord(analytics?.session?.analytics_summary)
+  );
+}
+
 function formatDateTimeValue(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -270,23 +293,68 @@ function getEventDetailRows(event: Record<string, unknown>) {
     }));
 }
 
+function extractFeedbackAnswers(eventRecord: Record<string, unknown>) {
+  const dataRecord = isRecord(eventRecord.data) ? eventRecord.data : undefined;
+  const payloadRecord = [
+    isRecord(eventRecord.payload) ? eventRecord.payload : undefined,
+    dataRecord && isRecord(dataRecord.payload) ? dataRecord.payload : undefined,
+    isRecord(eventRecord.answers) ? eventRecord.answers : undefined,
+    dataRecord && isRecord(dataRecord.answers) ? dataRecord.answers : undefined,
+    isRecord(eventRecord.form_data) ? eventRecord.form_data : undefined,
+    dataRecord && isRecord(dataRecord.form_data)
+      ? dataRecord.form_data
+      : undefined,
+    dataRecord,
+  ].find((value) => isRecord(value));
+
+  if (!payloadRecord || !isRecord(payloadRecord)) return {};
+
+  const metadataKeys = new Set([
+    "event_type",
+    "type",
+    "event",
+    "name",
+    "form_name",
+    "form_title",
+    "created_at",
+    "submitted_at",
+    "timestamp",
+    "session_token",
+  ]);
+
+  return Object.fromEntries(
+    Object.entries(payloadRecord).filter(
+      ([key]) => !metadataKeys.has(key.toLowerCase()),
+    ),
+  );
+}
+
 function extractFeedbackSummaryRows(
   feedbackRows: Array<Record<string, unknown>> | undefined,
 ) {
-  return (feedbackRows || []).map((row, index) => ({
-    id: `${row.id ?? row.created_at ?? index}`,
-    formName: String(row.form_name ?? row.form_title ?? row.form ?? "-") || "-",
-    status:
-      String(row.status ?? row.submission_status ?? "submitted") || "submitted",
-    submittedAt: formatDateTimeValue(
-      typeof row.created_at === "string"
-        ? row.created_at
-        : typeof row.submitted_at === "string"
-          ? row.submitted_at
-          : null,
-    ),
-    responseCount: isRecord(row.data) ? Object.keys(row.data).length : 0,
-  }));
+  return (feedbackRows || []).map((row, index) => {
+    const answers = extractFeedbackAnswers(row);
+    const detailSource = Object.keys(answers).length > 0 ? answers : row;
+    const detailRows = Object.entries(detailSource)
+      .filter(([, value]) => value !== null && value !== undefined && value !== "")
+      .map(([key, value]) => ({ key, value }));
+
+    return {
+      id: `${row.id ?? row.created_at ?? row.submitted_at ?? index}`,
+      formName: String(row.form_name ?? row.form_title ?? row.form ?? "-") || "-",
+      status:
+        String(row.status ?? row.submission_status ?? "submitted") || "submitted",
+      submittedAt: formatDateTimeValue(
+        typeof row.created_at === "string"
+          ? row.created_at
+          : typeof row.submitted_at === "string"
+            ? row.submitted_at
+            : null,
+      ),
+      responseCount: detailRows.length,
+      detailRows,
+    };
+  });
 }
 
 const tryParseStructuredString = (raw: string): unknown | null => {
@@ -1485,8 +1553,21 @@ export default function CustomerDetailsPage() {
 
   const canArchiveCustomer = !restrictProjectsForRole;
 
-  const [analyticsTab, setAnalyticsTab] = React.useState<"summary" | "events">(
-    "summary",
+  const [analyticsTab, setAnalyticsTab] = React.useState<
+    "summary" | "events" | "feedback"
+  >("summary");
+
+  const directAnalyticsSummary = useMemo(
+    () => extractAnalyticsSummaryRecord(analyticsModal?.analytics),
+    [analyticsModal],
+  );
+  const directAnalyticsFeedback = useMemo(
+    () =>
+      extractFeedbackSummaryRows(
+        analyticsModal?.analytics.feedback_submissions ||
+          analyticsModal?.analytics.session?.feedback_submissions,
+      ),
+    [analyticsModal],
   );
 
   const formatAnalyticsValue = (value: unknown): string => {
@@ -3128,6 +3209,10 @@ export default function CustomerDetailsPage() {
                     value: String(analyticsModal.analytics.events?.length || 0),
                   },
                   {
+                    label: "Feedback",
+                    value: String(directAnalyticsFeedback.length),
+                  },
+                  {
                     label: "Joinees",
                     value: formatCompactAnalyticsValue(
                       analyticsModal.analytics.session?.joinees,
@@ -3190,7 +3275,7 @@ export default function CustomerDetailsPage() {
                   borderBottom: "2px solid var(--slate-200)",
                 }}
               >
-                {(["summary", "events"] as const).map((tab) => (
+                {(["summary", "events", "feedback"] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setAnalyticsTab(tab)}
@@ -3213,8 +3298,10 @@ export default function CustomerDetailsPage() {
                     }}
                   >
                     {tab === "summary"
-                      ? "🧠 AI Buyer Summary"
-                      : `📊 Events (${analyticsModal.analytics.events?.length || 0})`}
+                      ? "AI Buyer Summary"
+                      : tab === "events"
+                        ? `Events (${analyticsModal.analytics.events?.length || 0})`
+                        : `Feedback (${directAnalyticsFeedback.length})`}
                   </button>
                 ))}
               </div>
@@ -3222,12 +3309,10 @@ export default function CustomerDetailsPage() {
               {/* ── Summary Tab ── */}
               {analyticsTab === "summary" && (
                 <>
-                  {analyticsModal.analytics.summary?.summary ? (
+                  {directAnalyticsSummary ? (
                     isMobileView ? (
                       <div style={{ display: "grid", gap: "0.55rem" }}>
-                        {Object.entries(
-                          analyticsModal.analytics.summary.summary,
-                        ).map(([key, value], i) => (
+                        {Object.entries(directAnalyticsSummary).map(([key, value], i) => (
                           <div
                             key={key}
                             style={{
@@ -3295,9 +3380,7 @@ export default function CustomerDetailsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {Object.entries(
-                              analyticsModal.analytics.summary.summary,
-                            ).map(([key, value], i) => (
+                            {Object.entries(directAnalyticsSummary).map(([key, value], i) => (
                               <tr
                                 key={key}
                                 style={{
@@ -3559,6 +3642,96 @@ export default function CustomerDetailsPage() {
                   )}
                 </>
               )}
+              {analyticsTab === "feedback" && (
+                <>
+                  {directAnalyticsFeedback.length > 0 ? (
+                    <div style={{ overflowX: "auto" }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          minWidth: "54rem",
+                          borderCollapse: "collapse",
+                          fontSize: "0.8rem",
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ background: "#fff7ed" }}>
+                            {["Form", "Status", "Fields", "Details", "Submitted"].map(
+                              (heading) => (
+                                <th
+                                  key={heading}
+                                  style={{
+                                    padding: "0.5rem 0.65rem",
+                                    textAlign: "left",
+                                  }}
+                                >
+                                  {heading}
+                                </th>
+                              ),
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {directAnalyticsFeedback.map((row, index) => (
+                            <tr
+                              key={row.id}
+                              style={{
+                                background: index % 2 === 0 ? "#fff" : "#f8fafc",
+                                borderBottom: "1px solid var(--slate-100)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <td style={{ padding: "0.42rem 0.65rem", fontWeight: 600 }}>
+                                {row.formName}
+                              </td>
+                              <td style={{ padding: "0.42rem 0.65rem" }}>
+                                {row.status}
+                              </td>
+                              <td style={{ padding: "0.42rem 0.65rem" }}>
+                                {row.responseCount}
+                              </td>
+                              <td style={{ padding: "0.42rem 0.65rem", minWidth: 280 }}>
+                                <div style={{ display: "grid", gap: "0.35rem" }}>
+                                  {row.detailRows.map((detail, detailIndex) => (
+                                    <div
+                                      key={`${detail.key}-${detailIndex}`}
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: "minmax(7rem, 38%) 1fr",
+                                        gap: "0.45rem",
+                                        alignItems: "start",
+                                      }}
+                                    >
+                                      <strong style={{ color: "var(--navy-700)" }}>
+                                        {prettifyKey(detail.key)}
+                                      </strong>
+                                      <span>
+                                        {renderSummaryValue(
+                                          detail.value,
+                                          prettifyKey,
+                                          false,
+                                        )}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                              <td style={{ padding: "0.42rem 0.65rem" }}>
+                                {row.submittedAt}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="alert alert-info">
+                      No feedback submissions found for this session.
+                    </div>
+                  )}
+                </>
+              )}
+
 
               {/* ── Footer actions ── */}
               <div
@@ -4065,6 +4238,14 @@ export default function CustomerDetailsPage() {
                                 textAlign: "left",
                               }}
                             >
+                              Details
+                            </th>
+                            <th
+                              style={{
+                                padding: "0.5rem 0.65rem",
+                                textAlign: "left",
+                              }}
+                            >
                               Submitted
                             </th>
                           </tr>
@@ -4103,6 +4284,38 @@ export default function CustomerDetailsPage() {
                                 }}
                               >
                                 {row.responseCount}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "0.42rem 0.65rem",
+                                  color: "var(--color-text-secondary)",
+                                  minWidth: 280,
+                                }}
+                              >
+                                <div style={{ display: "grid", gap: "0.35rem" }}>
+                                  {row.detailRows.map((detail, detailIndex) => (
+                                    <div
+                                      key={`${detail.key}-${detailIndex}`}
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: "minmax(7rem, 38%) 1fr",
+                                        gap: "0.45rem",
+                                        alignItems: "start",
+                                      }}
+                                    >
+                                      <strong style={{ color: "var(--navy-700)" }}>
+                                        {prettifyKey(detail.key)}
+                                      </strong>
+                                      <span>
+                                        {renderSummaryValue(
+                                          detail.value,
+                                          prettifyKey,
+                                          false,
+                                        )}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
                               </td>
                               <td
                                 style={{

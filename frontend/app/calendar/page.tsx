@@ -112,8 +112,10 @@ type ConectrAnalyticsResponse = {
     ended_at?: string;
     joinees?: number;
     event_count?: number;
+    feedback_submissions?: Array<Record<string, unknown>>;
   };
   events?: Array<Record<string, unknown>>;
+  feedback_submissions?: Array<Record<string, unknown>>;
 };
 
 type SessionEvidence = {
@@ -303,6 +305,7 @@ function extractPreferredSiteVisitTextFromObject(
       value.preferredSiteVisitDate,
       value["Site Visit Date"],
       value.site_visit_date,
+      value.preferred_date,
     );
 
     if (direct) return direct;
@@ -314,6 +317,62 @@ function extractPreferredSiteVisitTextFromObject(
   }
 
   return undefined;
+}
+
+function resolvePreferredSiteVisitDateTime(
+  answers: Record<string, unknown>,
+  eventRecord: Record<string, unknown>,
+  dataRecord?: Record<string, unknown>,
+) {
+  const preferredDate =
+    firstString(
+      getRecordValue(answers, [
+        "Preferred Site Visit Date",
+        "preferred_site_visit_date",
+        "preferredSiteVisitDate",
+        "Site Visit Date",
+        "site_visit_date",
+        "preferred_date",
+      ]),
+    ) ||
+    extractPreferredSiteVisitTextFromObject(eventRecord) ||
+    extractPreferredSiteVisitTextFromObject(dataRecord);
+
+  if (!preferredDate) return undefined;
+
+  const preferredTime = firstString(
+    getRecordValue(answers, [
+      "Preferred Site Visit Time",
+      "preferred_site_visit_time",
+      "preferredSiteVisitTime",
+      "Site Visit Time",
+      "site_visit_time",
+      "preferred_time",
+    ]),
+    eventRecord.preferred_time,
+    dataRecord?.preferred_time,
+  );
+
+  return preferredTime && !/\d{1,2}:\d{2}/.test(preferredDate)
+    ? `${preferredDate} ${preferredTime}`
+    : preferredDate;
+}
+
+function getFeedbackSourceRecords(analytics: ConectrAnalyticsResponse) {
+  const events = Array.isArray(analytics.events) ? analytics.events : [];
+  const sessionSubmissions = Array.isArray(
+    analytics.session?.feedback_submissions,
+  )
+    ? analytics.session.feedback_submissions
+    : [];
+  const submissions = Array.isArray(analytics.feedback_submissions)
+    ? analytics.feedback_submissions
+    : sessionSubmissions;
+
+  return [
+    ...submissions.map((record) => ({ record, source: "feedback" as const })),
+    ...events.map((record) => ({ record, source: "event" as const })),
+  ];
 }
 
 function buildCalendarCustomer(
@@ -352,11 +411,12 @@ function extractSiteVisitEntries(
   analytics: ConectrAnalyticsResponse,
   customer: Customer,
 ): CalendarEntry[] {
-  if (!Array.isArray(analytics.events)) {
+  const sourceRecords = getFeedbackSourceRecords(analytics);
+  if (sourceRecords.length === 0) {
     return [];
   }
 
-  return analytics.events.flatMap((eventRecord) => {
+  return sourceRecords.flatMap(({ record: eventRecord, source }) => {
     if (!isRecord(eventRecord)) {
       return [];
     }
@@ -384,18 +444,11 @@ function extractSiteVisitEntries(
         dataRecord?.form_title,
       ) || "Site Visit Booking Form";
 
-    const preferredSiteVisitValue =
-      firstString(
-        getRecordValue(answers, [
-          "Preferred Site Visit Date",
-          "preferred_site_visit_date",
-          "preferredSiteVisitDate",
-          "Site Visit Date",
-          "site_visit_date",
-        ]),
-      ) ||
-      extractPreferredSiteVisitTextFromObject(eventRecord) ||
-      extractPreferredSiteVisitTextFromObject(dataRecord);
+    const preferredSiteVisitValue = resolvePreferredSiteVisitDateTime(
+      answers,
+      eventRecord,
+      dataRecord,
+    );
 
     const normalizedEventType = (eventType || "").toLowerCase();
     const normalizedFormName = formName.toLowerCase();
@@ -446,7 +499,7 @@ function extractSiteVisitEntries(
           preferredDateTime: preferredSiteVisitValue,
           answers,
           sessionLinkId: sessionLink.id,
-          sessionToken: sessionLink.session_token,
+          sessionToken: sessionLink.session_token || source,
         },
       },
     ];
@@ -1224,6 +1277,14 @@ export default function CalendarPage() {
 
           const analytics =
             (await analyticsRes.json()) as ConectrAnalyticsResponse;
+          const feedbackCount = Math.max(
+            Array.isArray(analytics.feedback_submissions)
+              ? analytics.feedback_submissions.length
+              : 0,
+            Array.isArray(analytics.session?.feedback_submissions)
+              ? analytics.session.feedback_submissions.length
+              : 0,
+          );
 
           const evidence: SessionEvidence = {
             status: analytics.session?.status ?? sessionLink.status ?? null,
@@ -1234,6 +1295,7 @@ export default function CalendarPage() {
             eventCount: Math.max(
               Number(analytics.session?.event_count ?? 0),
               Array.isArray(analytics.events) ? analytics.events.length : 0,
+              feedbackCount,
               Number(sessionLink.event_count ?? 0),
             ),
           };
@@ -1261,7 +1323,7 @@ export default function CalendarPage() {
             : [],
         )
         .filter((entry) => {
-          const uniqueKey = `${entry.siteVisitFeedback?.sessionLinkId ?? "na"}:${entry.meeting_date}:${entry.meeting_time}:${entry.siteVisitFeedback?.submittedAt ?? ""}`;
+          const uniqueKey = `${entry.siteVisitFeedback?.sessionLinkId ?? "na"}:${entry.meeting_date}:${entry.meeting_time}`;
           if (seenKeys.has(uniqueKey)) {
             return false;
           }
