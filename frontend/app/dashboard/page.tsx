@@ -56,7 +56,10 @@ type DashboardRow = {
 type DashboardSiteVisitRow = DashboardRow;
 
 type ConectrAnalyticsResponse = {
+  session?: Record<string, unknown>;
   events?: Array<Record<string, unknown>>;
+  feedback_submissions?: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
 };
 
 const CONECTR_SESSION_BASE_URL = (() => {
@@ -305,6 +308,7 @@ function extractPreferredSiteVisitTextFromObject(
       value.preferredSiteVisitDate,
       value["Site Visit Date"],
       value.site_visit_date,
+      value.preferred_date,
     );
     if (direct) return direct;
 
@@ -315,6 +319,45 @@ function extractPreferredSiteVisitTextFromObject(
   }
 
   return undefined;
+}
+
+function resolvePreferredSiteVisitDateTime(
+  answers: Record<string, unknown>,
+  eventRecord: Record<string, unknown>,
+  dataRecord?: Record<string, unknown>,
+) {
+  const preferredDate =
+    firstString(
+      getRecordValue(answers, [
+        "Preferred Site Visit Date",
+        "preferred_site_visit_date",
+        "preferredSiteVisitDate",
+        "Site Visit Date",
+        "site_visit_date",
+        "preferred_date",
+      ]),
+    ) ||
+    extractPreferredSiteVisitTextFromObject(eventRecord) ||
+    extractPreferredSiteVisitTextFromObject(dataRecord);
+
+  if (!preferredDate) return undefined;
+
+  const preferredTime = firstString(
+    getRecordValue(answers, [
+      "Preferred Site Visit Time",
+      "preferred_site_visit_time",
+      "preferredSiteVisitTime",
+      "Site Visit Time",
+      "site_visit_time",
+      "preferred_time",
+    ]),
+    eventRecord.preferred_time,
+    dataRecord?.preferred_time,
+  );
+
+  return preferredTime && !/\d{1,2}:\d{2}/.test(preferredDate)
+    ? `${preferredDate} ${preferredTime}`
+    : preferredDate;
 }
 
 function parsePreferredSiteVisitDateTime(value: string) {
@@ -385,10 +428,38 @@ function extractFeedbackAnswers(eventRecord: Record<string, unknown>) {
   );
 }
 
+function getFeedbackSourceRecords(analytics: ConectrAnalyticsResponse) {
+  const events = Array.isArray(analytics.events) ? analytics.events : [];
+  const sessionSubmissions = Array.isArray(
+    analytics.session?.feedback_submissions,
+  )
+    ? (analytics.session.feedback_submissions as Array<Record<string, unknown>>)
+    : [];
+  const submissions = Array.isArray(analytics.feedback_submissions)
+    ? analytics.feedback_submissions
+    : sessionSubmissions;
+
+  return [
+    ...submissions.map((record) => ({ record, source: "feedback" as const })),
+    ...events.map((record) => ({ record, source: "event" as const })),
+  ];
+}
+
 function extractSummaryRecord(value: unknown): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
   if (isRecord(value.summary)) return value.summary;
   return value;
+}
+
+function extractSessionSummaryRecord(
+  session: ConectrCustomerAnalyticsSession | null,
+) {
+  return (
+    extractSummaryRecord(session?.summary) ||
+    extractSummaryRecord(session?.ai_summary) ||
+    extractSummaryRecord(session?.analysis) ||
+    extractSummaryRecord(session?.analytics_summary)
+  );
 }
 
 function formatDateTimeValue(value?: string | null) {
@@ -422,20 +493,29 @@ function extractEventDetail(event: Record<string, unknown>): string {
 function extractFeedbackSummaryRows(
   feedbackRows: Array<Record<string, unknown>> | undefined,
 ) {
-  return (feedbackRows || []).map((row, index) => ({
-    id: `${row.id ?? row.created_at ?? index}`,
-    formName: String(row.form_name ?? row.form_title ?? row.form ?? "-") || "-",
-    status:
-      String(row.status ?? row.submission_status ?? "submitted") || "submitted",
-    submittedAt: formatDateTimeValue(
-      typeof row.created_at === "string"
-        ? row.created_at
-        : typeof row.submitted_at === "string"
-          ? row.submitted_at
-          : null,
-    ),
-    responseCount: isRecord(row.data) ? Object.keys(row.data).length : 0,
-  }));
+  return (feedbackRows || []).map((row, index) => {
+    const answers = extractFeedbackAnswers(row);
+    const detailSource = Object.keys(answers).length > 0 ? answers : row;
+    const detailRows = Object.entries(detailSource)
+      .filter(([, value]) => value !== null && value !== undefined && value !== "")
+      .map(([key, value]) => ({ key, value }));
+
+    return {
+      id: `${row.id ?? row.created_at ?? row.submitted_at ?? index}`,
+      formName: String(row.form_name ?? row.form_title ?? row.form ?? "-") || "-",
+      status:
+        String(row.status ?? row.submission_status ?? "submitted") || "submitted",
+      submittedAt: formatDateTimeValue(
+        typeof row.created_at === "string"
+          ? row.created_at
+          : typeof row.submitted_at === "string"
+            ? row.submitted_at
+            : null,
+      ),
+      responseCount: detailRows.length,
+      detailRows,
+    };
+  });
 }
 
 const tryParseStructuredString = (raw: string): unknown | null => {
@@ -754,11 +834,12 @@ export default function DashboardPage() {
 
           const analytics = (await response.json()) as ConectrAnalyticsResponse;
           const events = Array.isArray(analytics.events) ? analytics.events : [];
+          const sourceRecords = getFeedbackSourceRecords(analytics);
           const customer = customerMap.get(link.customer_id);
 
           if (!customer) return [] as DashboardSiteVisitRow[];
 
-          return events.flatMap((eventRecord, index) => {
+          return sourceRecords.flatMap(({ record: eventRecord, source }, index) => {
             if (!isRecord(eventRecord)) return [];
 
             const dataRecord = isRecord(eventRecord.data)
@@ -782,18 +863,11 @@ export default function DashboardPage() {
                 dataRecord?.form_name,
                 dataRecord?.form_title,
               ) || "Site Visit Booking Form";
-            const preferredSiteVisitValue =
-              firstString(
-                getRecordValue(answers, [
-                  "Preferred Site Visit Date",
-                  "preferred_site_visit_date",
-                  "preferredSiteVisitDate",
-                  "Site Visit Date",
-                  "site_visit_date",
-                ]),
-              ) ||
-              extractPreferredSiteVisitTextFromObject(eventRecord) ||
-              extractPreferredSiteVisitTextFromObject(dataRecord);
+            const preferredSiteVisitValue = resolvePreferredSiteVisitDateTime(
+              answers,
+              eventRecord,
+              dataRecord,
+            );
             const normalizedEventType = (eventType || "").toLowerCase();
             const normalizedFormName = formName.toLowerCase();
             const isLikelySiteVisit =
@@ -823,7 +897,7 @@ export default function DashboardPage() {
 
             return [
               {
-                key: `site-${link.id}-${preferredSiteVisit.date}-${preferredSiteVisit.time}-${submittedAt || index}`,
+                key: `site-${source}-${link.id}-${preferredSiteVisit.date}-${preferredSiteVisit.time}-${submittedAt || index}`,
                 customerId: customer.id,
                 customerName: customer.name || customer.nickname || "N/A",
                 secretCode: customer.secret_code || "N/A",
@@ -858,7 +932,7 @@ export default function DashboardPage() {
             result.status === "fulfilled" ? result.value : [],
           )
           .filter((row) => {
-            const key = `${row.sessionToken}:${row.meetingDate}:${row.meetingTime}:${row.createdAt}`;
+            const key = `${row.sessionToken}:${row.meetingDate}:${row.meetingTime}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
@@ -1340,7 +1414,7 @@ export default function DashboardPage() {
   );
 
   const modalSummary = useMemo(() => {
-    return extractSummaryRecord(analyticsModalSession?.summary);
+    return extractSessionSummaryRecord(analyticsModalSession);
   }, [analyticsModalSession]);
 
   const modalEvents = useMemo(
@@ -1582,9 +1656,10 @@ export default function DashboardPage() {
                         return true;
                       });
                       const nestedTableColSpan =
-                        selectedStatus === "sitevisit" ||
-                        selectedStatus === "completed" ||
-                        selectedStatus === "live"
+                        selectedStatus === "sitevisit"
+                          ? 7
+                          : selectedStatus === "completed" ||
+                              selectedStatus === "live"
                           ? 6
                           : 5;
 
@@ -1666,7 +1741,8 @@ export default function DashboardPage() {
                                                 Site Visit
                                               </th>
                                             )}
-                                            {(selectedStatus === "completed" ||
+                                            {(selectedStatus === "sitevisit" ||
+                                              selectedStatus === "completed" ||
                                               selectedStatus === "live") && (
                                               <th className="px-2 py-2 text-left">
                                                 Action
@@ -1728,7 +1804,8 @@ export default function DashboardPage() {
                                             {selectedStatus === "sitevisit" && (
                                               <th className="px-2 py-2"></th>
                                             )}
-                                            {(selectedStatus === "completed" ||
+                                            {(selectedStatus === "sitevisit" ||
+                                              selectedStatus === "completed" ||
                                               selectedStatus === "live") && (
                                               <th className="px-2 py-2"></th>
                                             )}
@@ -1888,6 +1965,22 @@ export default function DashboardPage() {
                                                           row.meetingTime,
                                                         )
                                                       : "-"}
+                                                  </td>
+                                                )}
+                                                {selectedStatus ===
+                                                  "sitevisit" && (
+                                                  <td className="px-2 py-2">
+                                                    <button
+                                                      className="btn btn-ghost"
+                                                      disabled={
+                                                        !row.sessionToken
+                                                      }
+                                                      onClick={() =>
+                                                        openAnalyticsModal(row)
+                                                      }
+                                                    >
+                                                      View Analytics
+                                                    </button>
                                                   </td>
                                                 )}
                                                 {selectedStatus === "live" && (
@@ -2459,6 +2552,14 @@ export default function DashboardPage() {
                               textAlign: "left",
                             }}
                           >
+                            Details
+                          </th>
+                          <th
+                            style={{
+                              padding: "0.5rem 0.65rem",
+                              textAlign: "left",
+                            }}
+                          >
                             Submitted
                           </th>
                         </tr>
@@ -2496,6 +2597,32 @@ export default function DashboardPage() {
                               }}
                             >
                               {row.responseCount}
+                            </td>
+                            <td
+                              style={{
+                                padding: "0.42rem 0.65rem",
+                                color: "var(--color-text-secondary)",
+                                minWidth: 260,
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: "0.35rem" }}>
+                                {row.detailRows.map((detail, detailIndex) => (
+                                  <div
+                                    key={`${detail.key}-${detailIndex}`}
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "minmax(7rem, 38%) 1fr",
+                                      gap: "0.45rem",
+                                      alignItems: "start",
+                                    }}
+                                  >
+                                    <strong style={{ color: "var(--navy-700)" }}>
+                                      {prettifyKey(detail.key)}
+                                    </strong>
+                                    <span>{renderSummaryValue(detail.value)}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </td>
                             <td
                               style={{
