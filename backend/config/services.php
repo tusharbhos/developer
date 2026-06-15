@@ -44,4 +44,9 @@ return [
         'self_view_timeout' => env('CONECTR_SESSION_SELF_VIEW_TIMEOUT', 10),
     ],
 
+    'conectr' => [
+        'base_url' => env('CONECTR_API', 'https://conectr.biz/api'),
+        'api_token' => env('CONECTR_API_TOKEN', ''),
+    ],
+
 ];

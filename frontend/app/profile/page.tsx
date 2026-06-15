@@ -1,176 +1,340 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
-import { AuthAPI } from "@/lib/api";
+import { AuthAPI, ProfileUpdatePayload } from "@/lib/api";
 import { isStrongPassword, PASSWORD_POLICY_ERROR } from "@/lib/passwordPolicy";
+
+type StepId = "personal" | "company" | "business" | "image" | "password";
 
 type ProfileForm = {
   name: string;
   company_name: string;
   developer_name: string;
   company_size: string;
-  profile_image_url: string;
   rera_no: string;
   gst_no: string;
   phone: string;
   city: string;
+  state: string;
+  pincode: string;
   address: string;
+  experience_level: string;
+  primary_market: string;
+  micro_markets: string;
+  sell_cities: string;
+  avg_leads_per_month: string;
+  avg_site_visits_per_month: string;
+  avg_closures_per_month: string;
 };
 
-const companySizeOptions = [
-  { label: "Individual", value: "individual" },
-  { label: "1-2", value: "1-2" },
-  { label: "5-10", value: "5-10" },
-  { label: "10-20", value: "10-20" },
-  { label: "20-50", value: "20-50" },
-  { label: "50-100", value: "50-100" },
-  { label: "100+", value: "100+" },
+const steps: Array<{
+  id: StepId;
+  title: string;
+  subtitle: string;
+  eyebrow: string;
+}> = [
+  {
+    id: "personal",
+    title: "Personal Details",
+    subtitle: "Contact and address",
+    eyebrow: "Your basic information",
+  },
+  {
+    id: "company",
+    title: "Company Details",
+    subtitle: "Company and RERA",
+    eyebrow: "Business identity",
+  },
+  {
+    id: "business",
+    title: "Business Profile",
+    subtitle: "Experience and activity",
+    eyebrow: "Your market activity",
+  },
+  {
+    id: "image",
+    title: "Profile Image",
+    subtitle: "Photo and account status",
+    eyebrow: "Your public appearance",
+  },
+  {
+    id: "password",
+    title: "Change Password",
+    subtitle: "Account security",
+    eyebrow: "Secure your account",
+  },
 ];
+
+const companySizeOptions = [
+  ["individual", "Individual"],
+  ["1-2", "1-2 people"],
+  ["5-10", "5-10 people"],
+  ["10-20", "10-20 people"],
+  ["20-50", "20-50 people"],
+  ["50-100", "50-100 people"],
+  ["100+", "100+ people"],
+];
+
+const experienceOptions = [
+  ["", "Select experience"],
+  ["0-1", "Less than 1 year"],
+  ["1-3", "1-3 years"],
+  ["3-5", "3-5 years"],
+  ["5-10", "5-10 years"],
+  ["10+", "10+ years"],
+];
+
+function initials(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "U"
+  );
+}
+
+function numberValue(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
 
 export default function ProfilePage() {
   const { user, isAuthenticated, isLoading, refreshUser } = useAuth();
   const router = useRouter();
-  const roleProfileMode = useMemo(
-    () =>
-      ["developer_super_admin", "sourcing_admin", "sales_user"].includes(
-        user?.role || "",
-      ),
-    [user?.role],
-  );
-  const [saving, setSaving] = useState(false);
+  const [activeStep, setActiveStep] = useState<StepId>("personal");
+  const [savingStep, setSavingStep] = useState<StepId | null>(null);
   const [message, setMessage] = useState("");
+  const [isError, setIsError] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState<ProfileForm>({
+    name: "",
+    company_name: "",
+    developer_name: "",
+    company_size: "",
+    rera_no: "",
+    gst_no: "",
+    phone: "",
+    city: "",
+    state: "",
+    pincode: "",
+    address: "",
+    experience_level: "",
+    primary_market: "",
+    micro_markets: "",
+    sell_cities: "",
+    avg_leads_per_month: "",
+    avg_site_visits_per_month: "",
+    avg_closures_per_month: "",
+  });
 
-  const [form, setForm] = useState<ProfileForm>(() => ({
-    name: user?.name ?? "",
-    company_name: user?.company_name ?? "",
-    developer_name: user?.developer_name ?? user?.company_name ?? "",
-    company_size: user?.company_size ?? "",
-    profile_image_url: user?.profile_image_url ?? "",
-    rera_no: user?.rera_no ?? "",
-    gst_no: user?.gst_no ?? "",
-    phone: user?.phone ?? "",
-    city: user?.city ?? "",
-    address: user?.address ?? "",
-  }));
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) router.replace("/");
+  }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
     if (!user) return;
-
     setForm({
       name: user.name ?? "",
       company_name: user.company_name ?? "",
-      developer_name: user.developer_name ?? user.company_name ?? "",
+      developer_name: user.developer_name ?? "",
       company_size: user.company_size ?? "",
-      profile_image_url: user.profile_image_url ?? "",
       rera_no: user.rera_no ?? "",
       gst_no: user.gst_no ?? "",
       phone: user.phone ?? "",
       city: user.city ?? "",
+      state: user.state ?? "",
+      pincode: user.pincode ?? "",
       address: user.address ?? "",
+      experience_level: user.experience_level ?? "",
+      primary_market: (user.primary_market ?? []).join(", "),
+      micro_markets: user.micro_markets ?? "",
+      sell_cities: user.sell_cities ?? "",
+      avg_leads_per_month: String(user.avg_leads_per_month ?? ""),
+      avg_site_visits_per_month: String(
+        user.avg_site_visits_per_month ?? "",
+      ),
+      avg_closures_per_month: String(user.avg_closures_per_month ?? ""),
     });
-    setProfileImageFile(null);
     setProfileImagePreview(user.profile_image_url ?? "");
+    setProfileImageFile(null);
   }, [user]);
 
-  const canAccess = useMemo(
-    () => !isLoading && isAuthenticated,
-    [isLoading, isAuthenticated],
-  );
-
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.replace("/");
-    }
-  }, [isLoading, isAuthenticated, router]);
+    return () => {
+      if (profileImagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(profileImagePreview);
+      }
+    };
+  }, [profileImagePreview]);
 
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user?.role === "user") {
-      router.replace("/customer");
-    }
-  }, [isLoading, isAuthenticated, router, user?.role]);
+  const activeIndex = steps.findIndex((step) => step.id === activeStep);
+  const currentStep = steps[activeIndex];
+  const companyLabel =
+    user?.role === "developer_super_admin"
+      ? "Developer / Company Name"
+      : "Company Name";
 
-  const setValue = <K extends keyof ProfileForm>(
-    key: K,
-    value: ProfileForm[K],
-  ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const completedSections = useMemo(() => {
+    if (!user) return 0;
+    const complete = [
+      Boolean(user.name && user.phone && user.city && user.address),
+      Boolean(user.company_name && user.rera_no),
+      Boolean(
+        user.experience_level ||
+          user.primary_market?.length ||
+          user.sell_cities,
+      ),
+      Boolean(user.profile_image_url),
+      true,
+    ];
+    return complete.filter(Boolean).length;
+  }, [user]);
+
+  const completion = Math.round((completedSections / steps.length) * 100);
+
+  const setValue = (key: keyof ProfileForm, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }));
     setMessage("");
   };
 
-  const saveProfile = async () => {
-    if (!user) return;
+  const showMessage = (text: string, error = false) => {
+    setMessage(text);
+    setIsError(error);
+  };
 
-    const normalizedPhone = form.phone.replace(/\D/g, "").slice(0, 10);
-    if (normalizedPhone.length !== 10) {
-      setMessage("Please enter a valid 10-digit mobile number.");
-      return;
-    }
+  const apiErrorMessage = (error: unknown): string => {
+    const apiError = error as {
+      message?: string;
+      errors?: Record<string, string[]>;
+    };
+    const firstError = apiError.errors
+      ? Object.values(apiError.errors).flat()[0]
+      : "";
+    return firstError || apiError.message || "Could not save this section.";
+  };
 
-    if (password || passwordConfirmation) {
-      if (!isStrongPassword(password)) {
-        setMessage(PASSWORD_POLICY_ERROR);
-        return;
-      }
-
-      if (password !== passwordConfirmation) {
-        setMessage("Password and confirm password must match.");
-        return;
-      }
-    }
-
-    const payload = new FormData();
-    payload.append("name", form.name);
-    payload.append("company_name", form.developer_name || form.company_name);
-    if (form.developer_name)
-      payload.append("developer_name", form.developer_name);
-    if (form.company_size) payload.append("company_size", form.company_size);
-    payload.append("rera_no", form.rera_no);
-    if (form.gst_no) payload.append("gst_no", form.gst_no);
-    payload.append("phone", normalizedPhone);
-    payload.append("city", form.city);
-    payload.append("address", form.address);
-    if (profileImageFile) payload.append("profile_image", profileImageFile);
-    if (password) {
-      payload.append("password", password);
-      payload.append("password_confirmation", passwordConfirmation);
-    }
-
-    setSaving(true);
+  const savePayload = async (
+    step: StepId,
+    payload: ProfileUpdatePayload | FormData,
+  ) => {
+    setSavingStep(step);
+    setMessage("");
     try {
       await AuthAPI.updateProfile(payload);
       await refreshUser();
-      setMessage("Saved successfully.");
-      setPassword("");
-      setPasswordConfirmation("");
-    } catch (error: unknown) {
-      const e = error as {
-        message?: string;
-        errors?: Record<string, string[]>;
-      };
-
-      if (e.errors && typeof e.errors === "object") {
-        const firstKey = Object.keys(e.errors)[0];
-        if (firstKey && e.errors[firstKey]?.[0]) {
-          setMessage(e.errors[firstKey][0]);
-          return;
-        }
+      showMessage(`${steps.find((item) => item.id === step)?.title} saved.`);
+      if (activeIndex < steps.length - 1) {
+        window.setTimeout(() => setActiveStep(steps[activeIndex + 1].id), 350);
       }
-
-      setMessage(e.message || "Save failed. Please try again.");
+    } catch (error) {
+      showMessage(apiErrorMessage(error), true);
     } finally {
-      setSaving(false);
+      setSavingStep(null);
     }
   };
 
-  if (!canAccess) {
+  const saveCurrentStep = async () => {
+    if (activeStep === "personal") {
+      const phone = form.phone.replace(/\D/g, "").slice(0, 10);
+      if (!form.name.trim()) return showMessage("Full name is required.", true);
+      if (phone.length !== 10)
+        return showMessage("Enter a valid 10-digit phone number.", true);
+      if (form.pincode && !/^\d{6}$/.test(form.pincode)) {
+        return showMessage("Pincode must contain 6 digits.", true);
+      }
+      return savePayload("personal", {
+        name: form.name.trim(),
+        phone,
+        city: form.city.trim(),
+        state: form.state.trim(),
+        pincode: form.pincode,
+        address: form.address.trim(),
+      });
+    }
+
+    if (activeStep === "company") {
+      const companyName = (
+        form.developer_name || form.company_name
+      ).trim();
+      if (!companyName)
+        return showMessage(`${companyLabel} is required.`, true);
+      return savePayload("company", {
+        company_name: companyName,
+        developer_name:
+          user?.role === "developer_super_admin" ? companyName : undefined,
+        company_size: form.company_size,
+        rera_no: form.rera_no.trim(),
+        gst_no: form.gst_no.trim().toUpperCase(),
+      });
+    }
+
+    if (activeStep === "business") {
+      return savePayload("business", {
+        experience_level: form.experience_level,
+        primary_market: form.primary_market
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        micro_markets: form.micro_markets.trim(),
+        sell_cities: form.sell_cities.trim(),
+        avg_leads_per_month: numberValue(form.avg_leads_per_month),
+        avg_site_visits_per_month: numberValue(
+          form.avg_site_visits_per_month,
+        ),
+        avg_closures_per_month: numberValue(form.avg_closures_per_month),
+      });
+    }
+
+    if (activeStep === "image") {
+      if (!profileImageFile) {
+        return showMessage("Choose a profile image before saving.", true);
+      }
+      const payload = new FormData();
+      payload.append("profile_image", profileImageFile);
+      return savePayload("image", payload);
+    }
+
+    if (!isStrongPassword(password)) {
+      return showMessage(PASSWORD_POLICY_ERROR, true);
+    }
+    if (password !== passwordConfirmation) {
+      return showMessage("New password and confirmation must match.", true);
+    }
+    await savePayload("password", {
+      password,
+      password_confirmation: passwordConfirmation,
+    });
+    setPassword("");
+    setPasswordConfirmation("");
+  };
+
+  const handleImage = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showMessage("Profile image must be smaller than 2MB.", true);
+      event.target.value = "";
+      return;
+    }
+    if (profileImagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(profileImagePreview);
+    }
+    setProfileImageFile(file);
+    setProfileImagePreview(URL.createObjectURL(file));
+    setMessage("");
+  };
+
+  if (isLoading || !isAuthenticated || !user) {
     return (
       <div className="page-loader">
         <div className="spinner spinner-lg" />
@@ -179,603 +343,556 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-main">
+    <div className="min-h-screen bg-main">
       <Header variant="app" />
-      <main className="flex-1" style={{ paddingTop: "var(--header-height)" }}>
-        <div className="max-w-3xl mx-auto px-4 py-6">
-          <div className="glass-card p-5 md:p-7">
-            <h1
-              className="text-xl font-bold mb-2"
-              style={{
-                color: "var(--color-text-primary)",
-                fontFamily: "var(--font-display)",
-              }}
-            >
-              Profile Settings
-            </h1>
-            <p className="text-sm auth-text-muted mb-5">
-              Profile & Password Settings
-            </p>
 
-            {roleProfileMode && (
-              <div className="space-y-5">
-                <div
-                  className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5"
-                  style={{ alignItems: "start" }}
-                >
-                  {/* Left Panel: Profile Photo + Role Badge */}
-                  <div
-                    className="rounded-2xl p-4"
-                    style={{
-                      border: "1px solid var(--slate-200)",
-                      background: "#fff",
-                    }}
-                  >
-                    <div className="text-center">
-                      <div
-                        style={{
-                          width: 100,
-                          height: 100,
-                          borderRadius: 999,
-                          overflow: "hidden",
-                          background: "var(--navy-50)",
-                          border: "3px solid var(--gold-400)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          margin: "0 auto 12px",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {profileImagePreview ? (
-                          <img
-                            src={profileImagePreview}
-                            alt="Profile preview"
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                          />
-                        ) : (
-                          <span
-                            style={{
-                              fontSize: "2.5rem",
-                              fontWeight: 800,
-                              color: "var(--navy-700)",
-                            }}
-                          >
-                            {form.name?.trim()?.charAt(0)?.toUpperCase() || "U"}
-                          </span>
-                        )}
-                      </div>
-                      <p
-                        className="font-bold text-sm mb-1"
-                        style={{ color: "var(--navy-900)" }}
-                      >
-                        {form.name || "User"}
-                      </p>
-                      <span
-                        className="inline-block text-xs px-3 py-1 rounded-full font-semibold"
-                        style={{
-                          background: "var(--gold-100)",
-                          color: "var(--gold-700)",
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {user?.role?.replace(/_/g, " ")}
-                      </span>
-                    </div>
-
-                    <label className="auth-form-label mt-5">
-                      Profile Photo
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
-                      className="auth-form-input"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] ?? null;
-                        setProfileImageFile(file);
-                        if (file) {
-                          setProfileImagePreview(URL.createObjectURL(file));
-                        } else {
-                          setProfileImagePreview(form.profile_image_url || "");
-                        }
-                      }}
-                    />
-                    <p
-                      className="text-xs mt-1"
-                      style={{ color: "var(--color-text-muted)" }}
-                    >
-                      JPG, PNG or WEBP (max 2MB)
-                    </p>
-
-                    {user?.assigned_projects?.length ? (
-                      <div className="mt-4">
-                        <p
-                          className="text-xs font-bold mb-2"
-                          style={{ color: "var(--navy-700)" }}
-                        >
-                          📋 Assigned Projects
-                        </p>
-                        <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                          {user.assigned_projects.map((project) => (
-                            <div
-                              key={project}
-                              className="text-xs px-2.5 py-1.5 rounded-lg"
-                              style={{
-                                background: "var(--navy-50)",
-                                color: "var(--navy-700)",
-                                border: "1px solid var(--navy-100)",
-                              }}
-                            >
-                              {project}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {/* Right Panel: Role-Specific Form */}
-                  <div
-                    className="rounded-2xl p-4"
-                    style={{
-                      border: "1px solid var(--slate-200)",
-                      background: "#fff",
-                    }}
-                  >
-                    {/* Developer Super Admin - Same as create form (without unique key) */}
-                    {user?.role === "developer_super_admin" && (
-                      <>
-                        <p
-                          className="text-sm font-bold mb-4"
-                          style={{ color: "var(--navy-700)" }}
-                        >
-                          Developer Admin Profile
-                        </p>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="auth-form-label">
-                              Manager Name *
-                            </label>
-                            <input
-                              className="auth-form-input"
-                              value={form.name}
-                              onChange={(e) => setValue("name", e.target.value)}
-                              placeholder="Manager Name"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">
-                              Developer / Company Name *
-                            </label>
-                            <input
-                              className="auth-form-input"
-                              value={form.developer_name}
-                              onChange={(e) =>
-                                setValue("developer_name", e.target.value)
-                              }
-                              placeholder="Developer Name"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                          <div>
-                            <label className="auth-form-label">Email *</label>
-                            <input
-                              className="auth-form-input"
-                              type="email"
-                              value={user?.email || ""}
-                              readOnly
-                              placeholder="Email"
-                              style={{ background: "var(--slate-50)" }}
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">Phone No</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.phone}
-                              onChange={(e) =>
-                                setValue(
-                                  "phone",
-                                  e.target.value
-                                    .replace(/\D/g, "")
-                                    .slice(0, 10),
-                                )
-                              }
-                              placeholder="10-digit phone"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                          <div>
-                            <label className="auth-form-label">RERA No</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.rera_no}
-                              onChange={(e) =>
-                                setValue("rera_no", e.target.value)
-                              }
-                              placeholder="RERA Registration No"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">GST No</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.gst_no}
-                              onChange={(e) =>
-                                setValue("gst_no", e.target.value.toUpperCase())
-                              }
-                              placeholder="GST Number"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-4">
-                          <label className="auth-form-label">Address</label>
-                          <input
-                            className="auth-form-input"
-                            value={form.address}
-                            onChange={(e) =>
-                              setValue("address", e.target.value)
-                            }
-                            placeholder="Address"
-                          />
-                        </div>
-                      </>
-                    )}
-
-                    {/* Sourcing Admin - Simplified Profile */}
-                    {user?.role === "sourcing_admin" && (
-                      <>
-                        <p
-                          className="text-sm font-bold mb-4"
-                          style={{ color: "var(--navy-700)" }}
-                        >
-                          Sourcing Manager Profile
-                        </p>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="auth-form-label">
-                              Full Name *
-                            </label>
-                            <input
-                              className="auth-form-input"
-                              value={form.name}
-                              onChange={(e) => setValue("name", e.target.value)}
-                              placeholder="Your full name"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">Mobile</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.phone}
-                              onChange={(e) =>
-                                setValue(
-                                  "phone",
-                                  e.target.value
-                                    .replace(/\D/g, "")
-                                    .slice(0, 10),
-                                )
-                              }
-                              placeholder="10-digit phone"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">
-                              Office Address
-                            </label>
-                            <input
-                              className="auth-form-input"
-                              value={form.address}
-                              onChange={(e) =>
-                                setValue("address", e.target.value)
-                              }
-                              placeholder="Office address"
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Sales User - Minimal Profile */}
-                    {user?.role === "sales_user" && (
-                      <>
-                        <p
-                          className="text-sm font-bold mb-4"
-                          style={{ color: "var(--navy-700)" }}
-                        >
-                          Sales User Profile
-                        </p>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="auth-form-label">
-                              Full Name *
-                            </label>
-                            <input
-                              className="auth-form-input"
-                              value={form.name}
-                              onChange={(e) => setValue("name", e.target.value)}
-                              placeholder="Your full name"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">Mobile</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.phone}
-                              onChange={(e) =>
-                                setValue(
-                                  "phone",
-                                  e.target.value
-                                    .replace(/\D/g, "")
-                                    .slice(0, 10),
-                                )
-                              }
-                              placeholder="10-digit phone"
-                            />
-                          </div>
-                          <div>
-                            <label className="auth-form-label">Address</label>
-                            <input
-                              className="auth-form-input"
-                              value={form.address}
-                              onChange={(e) =>
-                                setValue("address", e.target.value)
-                              }
-                              placeholder="Your address"
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Change Password - Common for all roles */}
-                    <div
-                      className="mt-5 pt-4"
-                      style={{ borderTop: "1px solid var(--slate-200)" }}
-                    >
-                      <p
-                        className="text-sm font-bold mb-3"
-                        style={{ color: "var(--navy-700)" }}
-                      >
-                        🔐 Change Password
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="auth-form-label">
-                            New Password
-                          </label>
-                          <input
-                            type="password"
-                            className="auth-form-input"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Enter new password"
-                          />
-                        </div>
-                        <div>
-                          <label className="auth-form-label">
-                            Confirm Password
-                          </label>
-                          <input
-                            type="password"
-                            className="auth-form-input"
-                            value={passwordConfirmation}
-                            onChange={(e) =>
-                              setPasswordConfirmation(e.target.value)
-                            }
-                            placeholder="Confirm password"
-                          />
-                        </div>
-                      </div>
-                      <p
-                        className="text-xs mt-2"
-                        style={{ color: "var(--color-text-muted)" }}
-                      >
-                        Min 8 chars: 1 uppercase, 1 number, 1 symbol
-                      </p>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-3 mt-5">
-                      <button
-                        className="btn btn-gold flex-1 sm:flex-none"
-                        disabled={saving}
-                        onClick={() => saveProfile()}
-                      >
-                        {saving ? "Saving..." : "Save Profile"}
-                      </button>
-                      <button
-                        className="btn btn-ghost flex-1 sm:flex-none"
-                        onClick={() => router.push("/home")}
-                      >
-                        Back to Home
-                      </button>
-                    </div>
-                  </div>
-                </div>
+      <main style={{ paddingTop: "var(--header-height)" }}>
+        <section style={{ background: "var(--gradient-header)" }}>
+          <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 text-white sm:px-6 md:flex-row md:items-center md:justify-between md:gap-8 md:py-8 lg:px-8">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-blue-200">
+                Account Settings
+              </p>
+              <h1 className="text-2xl font-bold md:text-3xl">My Profile</h1>
+              <p className="mt-1 hidden text-sm text-white/65 sm:block">
+                Keep your contact, business and security details up to date.
+              </p>
+            </div>
+            <div className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 shadow-inner md:w-72">
+              <div className="mb-2 flex items-center justify-between gap-4 text-sm text-white/75">
+                <span>Profile completion</span>
+                <strong className="text-lg text-white">{completion}%</strong>
               </div>
-            )}
+              <div className="h-2 overflow-hidden rounded-full bg-white/20">
+                <span
+                  className="block h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all"
+                  style={{ width: `${completion}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
 
-            {!roleProfileMode && (
-              <div className="space-y-4">
-                <div
-                  className="flex items-center gap-4 p-3 rounded-xl"
-                  style={{
-                    background: "rgba(255,255,255,0.55)",
-                    border: "1px solid rgba(255,255,255,0.45)",
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-5 px-4 py-5 sm:px-6 md:py-7 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:px-8">
+          <aside className="overflow-hidden rounded-3xl border border-white/70 bg-white/85 p-4 shadow-xl backdrop-blur-xl lg:sticky lg:top-[calc(var(--header-height)+1.25rem)]">
+            <div className="flex items-center gap-4 border-b border-slate-200 px-1 pb-4">
+              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] border-orange-500 bg-blue-50 text-xl font-extrabold text-blue-950 shadow-lg">
+                {profileImagePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    className="h-full w-full object-cover"
+                    src={profileImagePreview}
+                    alt={form.name}
+                  />
+                ) : (
+                  <span>{initials(form.name)}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <strong className="block truncate text-base text-slate-900">
+                  {form.name || "Your profile"}
+                </strong>
+                <span className="block truncate text-xs text-slate-500">
+                  {user.email}
+                </span>
+                <small className="mt-2 inline-block rounded-full bg-green-100 px-3 py-1 text-[10px] font-bold capitalize text-green-700">
+                  {user.role.replace(/_/g, " ")}
+                </small>
+              </div>
+            </div>
+
+            <nav
+              className="mt-4 flex snap-x gap-2 overflow-x-auto pb-1 lg:grid lg:overflow-visible"
+              aria-label="Profile sections"
+            >
+              {steps.map((step, index) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  className={`flex min-w-[210px] snap-start items-center gap-3 rounded-2xl border p-3 text-left transition lg:min-w-0 ${
+                    activeStep === step.id
+                      ? "border-blue-950 bg-gradient-to-br from-blue-950 to-blue-800 text-white shadow-lg"
+                      : "border-slate-200 bg-white/80 text-slate-900 hover:border-blue-300"
+                  }`}
+                  onClick={() => {
+                    setActiveStep(step.id);
+                    setMessage("");
                   }}
                 >
-                  <div
-                    style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 999,
-                      overflow: "hidden",
-                      background: "var(--navy-50)",
-                      border: "2px solid var(--navy-100)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
+                  <span
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-xs font-black ${
+                      activeStep === step.id
+                        ? "bg-orange-500 text-white"
+                        : "bg-blue-50 text-blue-900"
+                    }`}
                   >
-                    {profileImagePreview ? (
-                      <img
-                        src={profileImagePreview}
-                        alt="Profile preview"
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: "1.4rem",
-                          fontWeight: 800,
-                          color: "var(--navy-700)",
-                        }}
-                      >
-                        {form.name?.trim()?.charAt(0)?.toUpperCase() || "U"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <label className="auth-form-label">Profile Image</label>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
-                      className="auth-form-input"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] ?? null;
-                        setProfileImageFile(file);
-                        if (file) {
-                          setProfileImagePreview(URL.createObjectURL(file));
-                        } else {
-                          setProfileImagePreview(form.profile_image_url || "");
-                        }
-                      }}
-                    />
-                    <p
-                      className="text-xs mt-1"
-                      style={{ color: "var(--color-text-muted)" }}
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block text-sm">{step.title}</strong>
+                    <small
+                      className={`block truncate text-xs ${
+                        activeStep === step.id
+                          ? "text-white/65"
+                          : "text-slate-500"
+                      }`}
                     >
-                      Upload JPG, PNG or WEBP up to 2MB.
-                    </p>
-                  </div>
-                </div>
+                      {step.subtitle}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </nav>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="auth-form-label">Name</label>
+            {user.assigned_projects?.length ? (
+              <div className="mt-4 hidden items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-xs text-blue-800 lg:flex">
+                <span>Assigned projects</span>
+                <strong className="text-base text-orange-600">
+                  {user.assigned_projects.length}
+                </strong>
+              </div>
+            ) : null}
+          </aside>
+
+          <div className="min-w-0 overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-xl backdrop-blur-xl">
+            <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white/80 px-5 py-5 sm:px-7 sm:py-6">
+              <div>
+                <span className="text-xs font-black text-orange-600">
+                  {String(activeIndex + 1).padStart(2, "0")}
+                </span>
+                <p className="mt-1 text-[10px] font-extrabold uppercase tracking-widest text-slate-500">
+                  {currentStep.eyebrow}
+                </p>
+                <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">
+                  {currentStep.title}
+                </h2>
+                <span className="hidden text-sm text-slate-500 sm:block">
+                  Update this section and save before moving to the next one.
+                </span>
+              </div>
+              <div className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800">
+                {activeIndex + 1} / {steps.length}
+              </div>
+            </header>
+
+            <div className="min-h-[400px] bg-gradient-to-br from-slate-50/95 to-blue-50/80 p-5 sm:p-7">
+              {activeStep === "personal" && (
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <Field label="Full name" required>
                     <input
-                      className="auth-form-input"
                       value={form.name}
-                      onChange={(e) => setValue("name", e.target.value)}
+                      onChange={(event) => setValue("name", event.target.value)}
+                      placeholder="Enter your full name"
                     />
-                  </div>
-                  <div>
-                    <label className="auth-form-label">Mobile</label>
+                  </Field>
+                  <Field label="Email">
+                    <input value={user.email} readOnly className="read-only" />
+                  </Field>
+                  <Field label="Phone number" required>
                     <input
-                      className="auth-form-input"
+                      inputMode="numeric"
                       value={form.phone}
-                      onChange={(e) =>
+                      onChange={(event) =>
                         setValue(
                           "phone",
-                          e.target.value.replace(/\D/g, "").slice(0, 10),
+                          event.target.value.replace(/\D/g, "").slice(0, 10),
                         )
                       }
+                      placeholder="10-digit mobile number"
                     />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="auth-form-label">City</label>
+                  </Field>
+                  <Field label="City">
                     <input
-                      className="auth-form-input"
                       value={form.city}
-                      onChange={(e) => setValue("city", e.target.value)}
+                      onChange={(event) => setValue("city", event.target.value)}
+                      placeholder="e.g. Pune"
                     />
-                  </div>
-                  <div>
-                    <label className="auth-form-label">Company Name</label>
+                  </Field>
+                  <Field label="State">
                     <input
-                      className="auth-form-input"
-                      value={form.company_name}
-                      onChange={(e) => setValue("company_name", e.target.value)}
+                      value={form.state}
+                      onChange={(event) => setValue("state", event.target.value)}
+                      placeholder="e.g. Maharashtra"
                     />
-                  </div>
+                  </Field>
+                  <Field label="Pincode">
+                    <input
+                      inputMode="numeric"
+                      value={form.pincode}
+                      onChange={(event) =>
+                        setValue(
+                          "pincode",
+                          event.target.value.replace(/\D/g, "").slice(0, 6),
+                        )
+                      }
+                      placeholder="6-digit pincode"
+                    />
+                  </Field>
+                  <Field label="Residential address" wide>
+                    <textarea
+                      rows={4}
+                      value={form.address}
+                      onChange={(event) =>
+                        setValue("address", event.target.value)
+                      }
+                      placeholder="Enter your complete address"
+                    />
+                  </Field>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="auth-form-label">Company Size</label>
+              )}
+
+              {activeStep === "company" && (
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <Field label={companyLabel} required wide>
+                    <input
+                      value={
+                        user.role === "developer_super_admin"
+                          ? form.developer_name
+                          : form.company_name
+                      }
+                      onChange={(event) =>
+                        setValue(
+                          user.role === "developer_super_admin"
+                            ? "developer_name"
+                            : "company_name",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="Enter registered company name"
+                    />
+                  </Field>
+                  <Field label="Company size">
                     <select
-                      className="auth-form-input"
                       value={form.company_size}
-                      onChange={(e) => setValue("company_size", e.target.value)}
+                      onChange={(event) =>
+                        setValue("company_size", event.target.value)
+                      }
                     >
-                      <option value="">Select</option>
-                      {companySizeOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
+                      <option value="">Select company size</option>
+                      {companySizeOptions.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <div />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="auth-form-label">RERA No</label>
+                  </Field>
+                  <Field label="RERA number">
                     <input
-                      className="auth-form-input"
                       value={form.rera_no}
-                      onChange={(e) => setValue("rera_no", e.target.value)}
+                      onChange={(event) =>
+                        setValue("rera_no", event.target.value.toUpperCase())
+                      }
+                      placeholder="RERA registration number"
+                    />
+                  </Field>
+                  <Field label="GST number" wide>
+                    <input
+                      value={form.gst_no}
+                      onChange={(event) =>
+                        setValue("gst_no", event.target.value.toUpperCase())
+                      }
+                      placeholder="GST identification number"
+                    />
+                  </Field>
+                </div>
+              )}
+
+              {activeStep === "business" && (
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <Field label="Experience">
+                    <select
+                      value={form.experience_level}
+                      onChange={(event) =>
+                        setValue("experience_level", event.target.value)
+                      }
+                    >
+                      {experienceOptions.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Primary markets">
+                    <input
+                      value={form.primary_market}
+                      onChange={(event) =>
+                        setValue("primary_market", event.target.value)
+                      }
+                      placeholder="Residential, Commercial"
+                    />
+                    <small>Separate multiple markets with commas.</small>
+                  </Field>
+                  <Field label="Micro markets">
+                    <input
+                      value={form.micro_markets}
+                      onChange={(event) =>
+                        setValue("micro_markets", event.target.value)
+                      }
+                      placeholder="Baner, Hinjewadi, Wakad"
+                    />
+                  </Field>
+                  <Field label="Cities you sell in">
+                    <input
+                      value={form.sell_cities}
+                      onChange={(event) =>
+                        setValue("sell_cities", event.target.value)
+                      }
+                      placeholder="Pune, Mumbai"
+                    />
+                  </Field>
+                  <Field label="Monthly leads">
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.avg_leads_per_month}
+                      onChange={(event) =>
+                        setValue("avg_leads_per_month", event.target.value)
+                      }
+                      placeholder="0"
+                    />
+                  </Field>
+                  <Field label="Monthly site visits">
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.avg_site_visits_per_month}
+                      onChange={(event) =>
+                        setValue(
+                          "avg_site_visits_per_month",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="0"
+                    />
+                  </Field>
+                  <Field label="Monthly closures" wide>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.avg_closures_per_month}
+                      onChange={(event) =>
+                        setValue("avg_closures_per_month", event.target.value)
+                      }
+                      placeholder="0"
+                    />
+                  </Field>
+                </div>
+              )}
+
+              {activeStep === "image" && (
+                <div className="mx-auto grid max-w-3xl grid-cols-1 items-center gap-8 py-2 text-center sm:grid-cols-[180px_1fr] sm:text-left">
+                  <div className="relative mx-auto grid h-36 w-36 place-items-center rounded-full border-[5px] border-white bg-gradient-to-br from-blue-100 to-slate-50 text-4xl font-black text-blue-950 shadow-xl ring-4 ring-orange-500 sm:h-44 sm:w-44">
+                    {profileImagePreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        className="h-full w-full rounded-full object-cover"
+                        src={profileImagePreview}
+                        alt="Profile preview"
+                      />
+                    ) : (
+                      <span>{initials(form.name)}</span>
+                    )}
+                    <i
+                      className={`absolute bottom-2 right-2 h-6 w-6 rounded-full border-4 border-white ${
+                        user.is_active ? "bg-green-500" : "bg-red-500"
+                      }`}
                     />
                   </div>
                   <div>
-                    <label className="auth-form-label">Address</label>
-                    <input
-                      className="auth-form-input"
-                      value={form.address}
-                      onChange={(e) => setValue("address", e.target.value)}
-                    />
+                    <h3 className="text-lg font-bold text-slate-900">
+                      Choose a clear profile photo
+                    </h3>
+                    <p className="mb-5 mt-1 text-sm text-slate-500">
+                      This image appears in your account menu and helps your
+                      team recognise you.
+                    </p>
+                    <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-white/65 p-5 text-center transition hover:border-orange-500 hover:bg-orange-50">
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        onChange={handleImage}
+                      />
+                      <span className="mb-2 grid h-9 w-9 place-items-center rounded-full bg-orange-100 text-xl text-orange-600">
+                        +
+                      </span>
+                      <strong className="max-w-full truncate text-sm text-blue-950">
+                        {profileImageFile
+                          ? profileImageFile.name
+                          : "Select profile image"}
+                      </strong>
+                      <small className="mt-1 text-xs text-slate-500">
+                        JPG, PNG or WEBP, maximum 2MB
+                      </small>
+                    </label>
+                    <div className="mt-4 flex items-center justify-between rounded-xl bg-white/65 px-4 py-3 text-xs text-slate-500">
+                      <span>Account status</span>
+                      <strong
+                        className={
+                          user.is_active ? "text-green-600" : "text-red-600"
+                        }
+                      >
+                        {user.is_active ? "Active" : "Inactive"}
+                      </strong>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <button
-                    className="btn btn-gold"
-                    disabled={saving}
-                    onClick={() => saveProfile()}
-                  >
-                    {saving ? "Saving..." : "Save Profile"}
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
 
-            {message && (
-              <div
-                className={`alert mt-4 ${message.includes("failed") ? "alert-danger" : "alert-success"}`}
+              {activeStep === "password" && (
+                <div className="max-w-4xl">
+                  <div className="mb-6 rounded-xl border-l-4 border-orange-500 bg-orange-50 px-4 py-3">
+                    <span className="text-xs font-black uppercase text-orange-700">
+                      Security tip
+                    </span>
+                    <p className="mt-1 text-sm text-orange-900/75">
+                      Use a password you do not use anywhere else. Updating it
+                      regularly keeps your account safer.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                    <Field label="New password" required>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        placeholder="Enter new password"
+                      />
+                    </Field>
+                    <Field label="Confirm password" required>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={passwordConfirmation}
+                        onChange={(event) =>
+                          setPasswordConfirmation(event.target.value)
+                        }
+                        placeholder="Re-enter new password"
+                      />
+                    </Field>
+                  </div>
+                  <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      className="h-4 w-4 accent-blue-700"
+                      type="checkbox"
+                      checked={showPassword}
+                      onChange={(event) =>
+                        setShowPassword(event.target.checked)
+                      }
+                    />
+                    Show password
+                  </label>
+                  <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      "At least 8 characters",
+                      "One uppercase letter",
+                      "One number",
+                      "One special character",
+                    ].map((rule) => (
+                      <span
+                        key={rule}
+                        className="rounded-lg bg-white/70 px-3 py-2 text-xs text-slate-500"
+                      >
+                        <b className="mr-2 text-green-600">✓</b>
+                        {rule}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {message && (
+                <div
+                  className={`alert mt-5 ${
+                    isError ? "alert-danger" : "alert-success"
+                  }`}
+                >
+                  {message}
+                </div>
+              )}
+            </div>
+
+            <footer className="flex flex-col-reverse gap-3 border-t border-slate-200 bg-white/85 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <button
+                type="button"
+                className="btn btn-ghost w-full sm:w-auto"
+                disabled={activeIndex === 0 || Boolean(savingStep)}
+                onClick={() => setActiveStep(steps[activeIndex - 1].id)}
               >
-                {message}
+                Previous
+              </button>
+              <div className="grid grid-cols-1 gap-2 sm:flex">
+                <button
+                  type="button"
+                  className="btn btn-ghost hidden sm:inline-flex"
+                  onClick={() => router.push("/home")}
+                >
+                  Back to home
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-gold w-full sm:min-w-40 sm:w-auto"
+                  disabled={Boolean(savingStep)}
+                  onClick={saveCurrentStep}
+                >
+                  {savingStep === activeStep
+                    ? "Saving..."
+                    : activeIndex === steps.length - 1
+                      ? "Update Password"
+                      : "Save & Continue"}
+                </button>
               </div>
-            )}
+            </footer>
           </div>
-        </div>
+        </section>
       </main>
       <Footer />
     </div>
+  );
+}
+
+function Field({
+  label,
+  required = false,
+  wide = false,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  const fieldChildren = React.Children.map(children, (child) => {
+    if (!React.isValidElement<{ className?: string }>(child)) return child;
+
+    if (["input", "select", "textarea"].includes(String(child.type))) {
+      return React.cloneElement(child, {
+        className: `input-field ${child.props.className ?? ""}`.trim(),
+      });
+    }
+
+    if (child.type === "small") {
+      return React.cloneElement(child, {
+        className: `mt-1 block text-xs text-slate-500 ${
+          child.props.className ?? ""
+        }`.trim(),
+      });
+    }
+
+    return child;
+  });
+
+  return (
+    <label
+      className={`min-w-0 ${
+        wide ? "sm:col-span-2" : ""
+      }`}
+    >
+      <span className="label">
+        {label}
+        {required ? " *" : ""}
+      </span>
+      <div>{fieldChildren}</div>
+    </label>
   );
 }

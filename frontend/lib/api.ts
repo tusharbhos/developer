@@ -175,7 +175,16 @@ export interface ApiUser {
   rera_no: string;
   phone: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   address: string;
+  experience_level?: string;
+  primary_market?: string[];
+  micro_markets?: string;
+  sell_cities?: string;
+  avg_leads_per_month?: number;
+  avg_site_visits_per_month?: number;
+  avg_closures_per_month?: number;
   role:
     | "user"
     | "admin"
@@ -476,7 +485,16 @@ export interface ProfileUpdatePayload {
   gst_no?: string;
   phone?: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   address?: string;
+  experience_level?: string;
+  primary_market?: string[];
+  micro_markets?: string;
+  sell_cities?: string;
+  avg_leads_per_month?: number;
+  avg_site_visits_per_month?: number;
+  avg_closures_per_month?: number;
   password?: string;
   password_confirmation?: string;
 }
@@ -1243,41 +1261,6 @@ export const ActivationRequestAPI = {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  PROJECT PRESENTATION LINK API  (admin only)
 // ══════════════════════════════════════════════════════════════════════════════
 
-export interface ProjectPresentationLink {
-  id: number;
-  developer_name: string;
-  project_name: string;
-  presentation_id: number;
-  with_developer_link?: string | null;
-  without_developer_link?: string | null;
-  seven_slide_link?: string | null;
-  created_at: string;
-}
-
-export interface CreateProjectPresentationLinkPayload {
-  developer_name: string;
-  project_name: string;
-  presentation_id: number;
-  with_developer_link?: string;
-  without_developer_link?: string;
-  seven_slide_link?: string;
-}
-
-export const ProjectPresentationLinkAPI = {
-  create: (payload: CreateProjectPresentationLinkPayload) =>
-    apiFetch<{ message: string; data: ProjectPresentationLink }>(
-      "/admin/project-presentation-links",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-    ),
-
-  list: () =>
-    apiFetch<{ data: ProjectPresentationLink[]; total: number }>(
-      "/admin/project-presentation-links",
-    ),
-};
+// End of API definitions.

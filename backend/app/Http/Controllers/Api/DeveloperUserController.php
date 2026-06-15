@@ -262,14 +262,22 @@ class DeveloperUserController extends Controller
             return [];
         }
 
-        $apiBase = rtrim((string) env('CONECTR_API', env('NEXT_PUBLIC_CONECTR_API', 'https://conectr.biz/api')), '/');
+        $apiBase = rtrim((string) config('services.conectr.base_url'), '/');
+        $apiToken = trim((string) config('services.conectr.api_token'));
         $url = $apiBase . '/presentations/search';
+
+        if ($apiToken === '') {
+            return [];
+        }
 
         $projectTitles = [];
         $seen = [];
 
         while ($url) {
-            $response = Http::timeout(20)->acceptJson()->get($url);
+            $response = Http::timeout(20)
+                ->acceptJson()
+                ->withToken($apiToken)
+                ->get($url);
             if (! $response->successful()) {
                 break;
             }
