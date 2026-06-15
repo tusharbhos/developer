@@ -124,9 +124,6 @@ const DATE_OPTIONS = Array.from({ length: 60 }, (_, i) => {
   return { val, label };
 });
 
-const CONECTR_BASE_URL =
-  process.env.NEXT_PUBLIC_CONECTR_SESSION_BASE_URL?.replace(/\/+$/, "");
-
 type ConectrAnalyticsResponse = {
   session?: {
     status?: string;
@@ -1603,20 +1600,10 @@ export default function CustomerDetailsPage() {
     setAnalyticsLoadingToken(sessionLink.session_token);
     setError("");
     try {
-      const res = await fetch(
-        `${CONECTR_BASE_URL}/api/session/${encodeURIComponent(sessionLink.session_token)}/analytics`,
-        {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        },
+      const response = await CustomerSessionLinkAPI.sessionAnalytics(
+        sessionLink.id,
       );
-
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `Analytics request failed (${res.status}).`);
-      }
-
-      const data = (await res.json()) as ConectrAnalyticsResponse;
+      const data = response.data as ConectrAnalyticsResponse;
       setAnalyticsModal({ sessionLink, analytics: data });
     } catch (e: unknown) {
       setError(
@@ -1639,21 +1626,10 @@ export default function CustomerDetailsPage() {
     setSummaryLoadingToken(sessionLink.session_token);
     setError("");
     try {
-      const res = await fetch(
-        `${CONECTR_BASE_URL}/api/session/${encodeURIComponent(sessionLink.session_token)}/generate-summary`,
-        {
-          method: "POST",
-          headers: { Accept: "application/json" },
-        },
+      await CustomerSessionLinkAPI.generateSessionSummary(sessionLink.id);
+      showSuccess(
+        "Summary generation started. It will appear automatically after the webhook arrives.",
       );
-
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `Summary generation failed (${res.status}).`);
-      }
-
-      showSuccess("Summary generated. Opening latest analytics...");
-      await handleViewSessionAnalytics(sessionLink);
     } catch (e: unknown) {
       setError(
         (e as { message?: string }).message ||
@@ -1675,21 +1651,10 @@ export default function CustomerDetailsPage() {
     setEndingLoadingToken(sessionLink.session_token);
     setError("");
     try {
-      const endRes = await fetch(
-        `${CONECTR_BASE_URL}/api/session/${encodeURIComponent(sessionLink.session_token)}/end`,
-        {
-          method: "POST",
-          headers: { Accept: "application/json" },
-        },
+      await CustomerSessionLinkAPI.endSession(sessionLink.id);
+      showSuccess(
+        "Session end requested. Status and summary will update from webhooks.",
       );
-
-      if (!endRes.ok && endRes.status !== 410) {
-        const body = await endRes.text();
-        throw new Error(body || `Failed to end session (${endRes.status}).`);
-      }
-
-      await handleGenerateSessionSummary(sessionLink);
-      showSuccess("Session ended and latest summary loaded.");
     } catch (e: unknown) {
       setError((e as { message?: string }).message || "Failed to end session.");
     } finally {

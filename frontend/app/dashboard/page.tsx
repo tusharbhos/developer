@@ -62,21 +62,6 @@ type ConectrAnalyticsResponse = {
   summary?: Record<string, unknown>;
 };
 
-const CONECTR_SESSION_BASE_URL = (() => {
-  const rawBaseUrl =
-    process.env.NEXT_PUBLIC_CONECTR_SESSION_BASE_URL?.trim() || "";
-  const sanitizedBaseUrl =
-    rawBaseUrl && rawBaseUrl !== "undefined" && rawBaseUrl !== "null"
-      ? rawBaseUrl
-      : "https://conectr.pro";
-
-  return sanitizedBaseUrl.replace(/\/+$/, "");
-})();
-
-function buildConectrSessionAnalyticsUrl(sessionToken: string) {
-  return `${CONECTR_SESSION_BASE_URL}/api/session/${encodeURIComponent(sessionToken)}/analytics`;
-}
-
 const ROWS_PER_PAGE = 10;
 
 const STATUS_BUTTONS: Array<{
@@ -821,18 +806,8 @@ export default function DashboardPage() {
         const settled = await Promise.allSettled(
           candidates.map(async (link) => {
           if (!link.session_token) return [] as DashboardSiteVisitRow[];
-
-          const response = await fetch(
-            buildConectrSessionAnalyticsUrl(link.session_token),
-            {
-              method: "GET",
-              headers: { Accept: "application/json" },
-            },
-          );
-
-          if (!response.ok) return [] as DashboardSiteVisitRow[];
-
-          const analytics = (await response.json()) as ConectrAnalyticsResponse;
+          const analytics = (link.analytics_payload ??
+            {}) as ConectrAnalyticsResponse;
           const events = Array.isArray(analytics.events) ? analytics.events : [];
           const sourceRecords = getFeedbackSourceRecords(analytics);
           const customer = customerMap.get(link.customer_id);

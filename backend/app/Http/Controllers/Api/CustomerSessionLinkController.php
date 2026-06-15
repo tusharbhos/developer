@@ -7,7 +7,6 @@ use App\Models\Customer;
 use App\Models\CustomerProjectLink;
 use App\Models\CustomerSessionLink;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\Pool;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -123,6 +122,10 @@ class CustomerSessionLinkController extends Controller
 
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
         $frontendUrl = (string) ($v['frontend_url'] ?? config('services.conectr_session.frontend_url', $baseUrl));
+        $viewerId = trim((string) ($v['viewer_id'] ?? ''));
+        if ($viewerId === '') {
+            $viewerId = 'CUST-' . $customer->id;
+        }
 
         $payload = [
             'presentation_id' => $v['presentation_id'],
@@ -132,8 +135,10 @@ class CustomerSessionLinkController extends Controller
             'viewer_name' => $v['viewer_name'],
             'viewer_email' => $v['viewer_email'] ?? null,
             'viewer_phone' => $v['viewer_phone'] ?? null,
-            'viewer_id' => $v['viewer_id'] ?? null,
+            'viewer_id' => $viewerId,
             'expires_in_hours' => (int) ($v['expires_in_hours'] ?? 72),
+            'webhook_url' => $this->conectrWebhookUrl(),
+            'webhook_payload_mode' => (string) config('services.conectr_session.webhook_payload_mode', 'full'),
         ];
 
         try {
@@ -199,7 +204,7 @@ class CustomerSessionLinkController extends Controller
             'viewer_name' => (string) ($body['viewer_name'] ?? $v['viewer_name']),
             'viewer_email' => (string) ($v['viewer_email'] ?? ''),
             'viewer_phone' => (string) ($v['viewer_phone'] ?? ''),
-            'viewer_platform_id' => (string) ($v['viewer_id'] ?? ''),
+            'viewer_platform_id' => $viewerId,
             'session_token' => (string) $body['session_token'],
             'session_code' => (string) ($body['session_code'] ?? ''),
             'join_code' => (string) ($body['join_code'] ?? ''),
@@ -234,133 +239,44 @@ class CustomerSessionLinkController extends Controller
     public function statusSnapshots(Request $request): JsonResponse
     {
         $rows = $this->visibleSessionLinks($request);
-        $apiKey = trim((string) config('services.conectr_session.api_key', ''));
-        if ($apiKey === '') {
-            return response()->json([
-                'message' => 'ConectR API key is not configured.',
-            ], 500);
-        }
-
-        $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
         $snapshots = [];
-        $rowsByToken = [];
 
         foreach ($rows as $row) {
             $token = trim((string) $row->session_token);
-            if ($token !== '') {
-                $rowsByToken[$token] = $row;
-            }
-        }
-
-        if ($rowsByToken === []) {
-            return response()->json([
-                'data' => [],
-            ]);
-        }
-
-        try {
-            $responses = Http::pool(function (Pool $pool) use ($rowsByToken, $baseUrl, $apiKey, $frontendUrl) {
-                $requests = [];
-
-                foreach (array_keys($rowsByToken) as $token) {
-                    $requests['links:' . $token] = $pool
-                        ->as('links:' . $token)
-                        ->acceptJson()
-                        ->timeout(5)
-                        ->withHeaders([
-                            'X-API-Key' => $apiKey,
-                            'X-Frontend-URL' => $frontendUrl,
-                        ])
-                        ->get("{$baseUrl}/api/sessions/" . rawurlencode($token) . "/links");
-
-                    $requests['analytics:' . $token] = $pool
-                        ->as('analytics:' . $token)
-                        ->acceptJson()
-                        ->timeout(8)
-                        ->withHeaders([
-                            'X-API-Key' => $apiKey,
-                            'X-Frontend-URL' => $frontendUrl,
-                        ])
-                        ->get("{$baseUrl}/api/session/" . rawurlencode($token) . "/analytics");
-                }
-
-                return $requests;
-            });
-        } catch (ConnectionException $e) {
-            $responses = [];
-        }
-
-        foreach ($rowsByToken as $token => $row) {
-            $links = [];
-            $analytics = [];
-            $error = null;
-            $linksResponse = $responses['links:' . $token] ?? null;
-            $analyticsResponse = $responses['analytics:' . $token] ?? null;
-
-            if ($linksResponse && method_exists($linksResponse, 'ok') && $linksResponse->ok()) {
-                $links = $linksResponse->json() ?: [];
-            } elseif ($linksResponse && method_exists($linksResponse, 'status')) {
-                $error = 'ConectR status request failed with HTTP ' . $linksResponse->status();
-            } else {
-                $error = 'ConectR status request failed.';
+            if ($token === '') {
+                continue;
             }
 
-            if ($analyticsResponse && method_exists($analyticsResponse, 'ok') && $analyticsResponse->ok()) {
-                $analytics = $analyticsResponse->json() ?: [];
-            }
-
-            $analyticsSession = is_array(data_get($analytics, 'session'))
-                ? data_get($analytics, 'session')
-                : [];
-            $analyticsEvents = data_get($analytics, 'events');
-            $analyticsFeedback = data_get($analytics, 'feedback_submissions');
-            $eventCount = max(
-                (int) data_get($links, 'event_count', 0),
-                (int) data_get($analyticsSession, 'event_count', 0),
-                is_array($analyticsEvents) ? count($analyticsEvents) : 0,
-                (int) data_get($row->raw_response, 'event_count', 0),
+            $status = $this->dashboardSessionStatus(
+                (string) ($row->status ?: 'scheduled'),
+                $row->started_at,
+                $row->ended_at,
             );
-            $feedbackCount = is_array($analyticsFeedback) ? count($analyticsFeedback) : 0;
-            $rawJoinees = max(
-                (int) data_get($links, 'joinees', 0),
-                (int) data_get($analyticsSession, 'joinees', 0),
-                (int) data_get($row->raw_response, 'joinees', 0),
-            );
-            $joinees = $rawJoinees > 0 || $eventCount > 0 ? max($rawJoinees, $eventCount > 0 ? 1 : 0) : 0;
-            $rawStatus = (string) (
-                data_get($links, 'status')
-                ?: data_get($analyticsSession, 'status')
-                ?: data_get($row->raw_response, 'status', 'scheduled')
-            );
-            $startedAt = data_get($links, 'started_at')
-                ?: data_get($analyticsSession, 'started_at')
-                ?: data_get($row->raw_response, 'started_at');
-            $endedAt = data_get($links, 'ended_at')
-                ?: data_get($analyticsSession, 'ended_at')
-                ?: data_get($row->raw_response, 'ended_at');
-            $status = $this->dashboardSessionStatus($rawStatus, $startedAt, $endedAt);
 
             $snapshots[$token] = [
                 'session_token' => $token,
                 'status' => $status,
-                'provider_status' => $rawStatus,
-                'join_state' => $this->joinState($status, $joinees, $startedAt, $endedAt, $eventCount),
-                'joinees' => $joinees,
-                'event_count' => $eventCount,
-                'started_at' => $startedAt,
-                'ended_at' => $endedAt,
-                'is_expired' => (bool) data_get($links, 'is_expired', false),
-                'presenter_link' => data_get($links, 'presenter_link') ?: $row->presenter_link,
-                'viewer_link' => data_get($links, 'viewer_link') ?: $row->viewer_link,
-                'self_view_url' => data_get($links, 'self_view_url') ?: $row->self_view_url,
-                'error' => $error,
+                'provider_status' => $row->status ?: 'scheduled',
+                'join_state' => $this->joinState(
+                    $status,
+                    (int) $row->joinees,
+                    $row->started_at,
+                    $row->ended_at,
+                    (int) $row->event_count,
+                ),
+                'joinees' => (int) $row->joinees,
+                'event_count' => (int) $row->event_count,
+                'started_at' => $row->started_at,
+                'ended_at' => $row->ended_at,
+                'is_expired' => $row->expires_at?->isPast() ?? false,
+                'presenter_link' => $row->presenter_link,
+                'viewer_link' => $row->viewer_link,
+                'self_view_url' => $row->self_view_url,
+                'error' => null,
             ];
         }
 
-        return response()->json([
-            'data' => $snapshots,
-        ]);
+        return response()->json(['data' => $snapshots]);
     }
 
     public function publicSelfViewStore(Request $request, string $token): JsonResponse
@@ -448,7 +364,10 @@ class CustomerSessionLinkController extends Controller
 
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
         $frontendUrl = (string) ($v['frontend_url'] ?? config('services.conectr_session.frontend_url', $baseUrl));
-        $viewerId = trim((string) ($v['viewer_id'] ?? $customer?->secret_code ?? ''));
+        $viewerId = trim((string) ($v['viewer_id'] ?? ''));
+        if ($viewerId === '') {
+            $viewerId = 'CUST-' . $customer->id;
+        }
 
         $payload = [
             'presentation_id' => $v['presentation_id'],
@@ -469,6 +388,8 @@ class CustomerSessionLinkController extends Controller
             'source' => 'standalone',
             'self_view' => true,
             'self_view_only' => true,
+            'webhook_url' => $this->conectrWebhookUrl(),
+            'webhook_payload_mode' => (string) config('services.conectr_session.webhook_payload_mode', 'full'),
         ];
 
         try {
@@ -572,25 +493,72 @@ class CustomerSessionLinkController extends Controller
     public function customerAnalytics(Request $request, int $customerId): JsonResponse
     {
         $customer = $this->findScopedCustomer($request->user(), $customerId);
-        $viewerId = $this->resolveViewerId($customer);
-
-        if ($viewerId === '') {
-            return response()->json([
-                'message' => 'No ConectR viewer ID found for this customer yet.',
-            ], 422);
-        }
-
-        $query = [];
         $developerId = trim((string) $request->query('developer_id', ''));
-        if ($developerId !== '') {
-            $query['developer_id'] = $developerId;
+        $rows = CustomerSessionLink::query()
+            ->where('customer_id', $customer->id)
+            ->when($developerId !== '', fn($query) => $query->where('presenter_platform_id', $developerId))
+            ->orderByDesc('created_at')
+            ->get();
+
+        $sessions = $rows->map(fn(CustomerSessionLink $row) => $this->localAnalyticsPayload($row))->values();
+        $presentations = $rows->pluck('presentation_title')
+            ->filter()
+            ->unique()
+            ->values();
+        $developers = $rows->pluck('presenter_platform_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        return response()->json([
+            'data' => [
+                'customer' => [
+                    'viewer_id' => $this->resolveViewerId($customer),
+                    'viewer_name' => $customer->name ?: $customer->nickname,
+                    'total_sessions' => $rows->count(),
+                    'total_events' => $rows->sum('event_count'),
+                    'presentations_viewed' => $presentations,
+                    'developers_interacted' => $developers,
+                ],
+                'sessions' => $sessions,
+            ],
+        ]);
+    }
+
+    public function sessionAnalytics(Request $request, int $id): JsonResponse
+    {
+        $row = $this->findVisibleSessionLink($request, $id);
+
+        return response()->json([
+            'data' => $this->localAnalyticsPayload($row),
+        ]);
+    }
+
+    public function generateSessionSummary(Request $request, int $id): JsonResponse
+    {
+        $row = $this->findVisibleSessionLink($request, $id);
+        $response = $this->providerSessionRequest($row, 'POST', 'generate-summary');
+        if ($response->getStatusCode() >= 400) {
+            return $response;
         }
 
-        return $this->proxyConectrRequest(
-            'GET',
-            '/api/analytics/customer/' . rawurlencode($viewerId),
-            $query,
-        );
+        return response()->json([
+            'message' => 'Summary generation requested. The summary_ready webhook will update the database.',
+            'data' => $this->localAnalyticsPayload($row->fresh()),
+        ]);
+    }
+
+    public function endSession(Request $request, int $id): JsonResponse
+    {
+        $row = $this->findVisibleSessionLink($request, $id);
+        $response = $this->providerSessionRequest($row, 'POST', 'end');
+        if ($response->getStatusCode() >= 400 && $response->getStatusCode() !== 410) {
+            return $response;
+        }
+
+        return response()->json([
+            'message' => 'Session end requested. Webhooks will update the final status and summary.',
+        ]);
     }
 
     public function customerMasterSummary(Request $request, int $customerId): JsonResponse
@@ -784,6 +752,11 @@ class CustomerSessionLinkController extends Controller
                 'session_link_count' => $count,
                 'latest_session_link_id' => $latestHint->id,
                 'latest_session_created_at' => $latestHint->created_at?->toDateTimeString(),
+                'latest_session_status' => $latestHint->status,
+                'latest_session_started_at' => $latestHint->started_at,
+                'latest_session_ended_at' => $latestHint->ended_at,
+                'latest_session_joinees' => $latestHint->joinees,
+                'latest_session_event_count' => $latestHint->event_count,
             ];
         }
 
@@ -801,6 +774,11 @@ class CustomerSessionLinkController extends Controller
             'session_link_count' => $rows->count(),
             'latest_session_link_id' => $latest?->id,
             'latest_session_created_at' => $latest?->created_at?->toDateTimeString(),
+            'latest_session_status' => $latest?->status,
+            'latest_session_started_at' => $latest?->started_at,
+            'latest_session_ended_at' => $latest?->ended_at,
+            'latest_session_joinees' => $latest?->joinees ?? 0,
+            'latest_session_event_count' => $latest?->event_count ?? 0,
         ];
     }
 
@@ -817,7 +795,124 @@ class CustomerSessionLinkController extends Controller
             return $latestViewerId;
         }
 
-        return trim((string) ($customer->secret_code ?? ''));
+        return trim((string) ($customer->secret_code ?? '')) ?: 'CUST-' . $customer->id;
+    }
+
+    private function conectrWebhookUrl(): ?string
+    {
+        $url = trim((string) config('services.conectr_session.webhook_url'));
+        $secret = trim((string) config('services.conectr_session.webhook_secret'));
+        if ($url === '' || $secret === '') {
+            return null;
+        }
+
+        $separator = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $separator . http_build_query(['key' => $secret]);
+    }
+
+    private function findVisibleSessionLink(Request $request, int $id): CustomerSessionLink
+    {
+        /** @var CustomerSessionLink|null $row */
+        $row = $this->visibleSessionLinks($request)->firstWhere('id', $id);
+        if (! $row) {
+            abort(404, 'Session link not found.');
+        }
+
+        return $row;
+    }
+
+    private function localAnalyticsPayload(CustomerSessionLink $row): array
+    {
+        $stored = is_array($row->analytics_payload) ? $row->analytics_payload : [];
+        $events = is_array(data_get($stored, 'events')) ? data_get($stored, 'events') : [];
+        $feedback = is_array($row->feedback_payload)
+            ? $row->feedback_payload
+            : (is_array(data_get($stored, 'feedback_submissions')) ? data_get($stored, 'feedback_submissions') : []);
+        $summary = is_array($row->summary_payload)
+            ? $row->summary_payload
+            : (is_array(data_get($stored, 'summary')) ? data_get($stored, 'summary') : []);
+
+        return array_replace_recursive($stored, [
+            'session_token' => $row->session_token,
+            'session_code' => $row->session_code,
+            'presentation_id' => $row->presentation_id,
+            'presentation_title' => $row->presentation_title ?: $row->project_name,
+            'presenter_name' => $row->presenter_name,
+            'viewer_name' => $row->viewer_name,
+            'viewer_id' => $row->viewer_platform_id,
+            'status' => $row->status ?: 'scheduled',
+            'created_at' => $row->created_at?->toIso8601String(),
+            'started_at' => $row->started_at,
+            'ended_at' => $row->ended_at,
+            'joinees' => $row->joinees,
+            'event_count' => max($row->event_count, count($events), count($feedback)),
+            'events' => $events,
+            'summary' => $summary,
+            'feedback_submissions' => $feedback,
+            'session' => array_replace_recursive(
+                is_array(data_get($stored, 'session')) ? data_get($stored, 'session') : [],
+                [
+                    'session_token' => $row->session_token,
+                    'session_code' => $row->session_code,
+                    'presentation_title' => $row->presentation_title ?: $row->project_name,
+                    'presenter_name' => $row->presenter_name,
+                    'viewer_name' => $row->viewer_name,
+                    'viewer_id' => $row->viewer_platform_id,
+                    'status' => $row->status ?: 'scheduled',
+                    'created_at' => $row->created_at?->toIso8601String(),
+                    'started_at' => $row->started_at,
+                    'ended_at' => $row->ended_at,
+                    'joinees' => $row->joinees,
+                    'event_count' => max($row->event_count, count($events), count($feedback)),
+                    'feedback_submissions' => $feedback,
+                ],
+            ),
+        ]);
+    }
+
+    private function providerSessionRequest(CustomerSessionLink $row, string $method, string $action): JsonResponse
+    {
+        $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
+        $apiKey = trim((string) config('services.conectr_session.api_key'));
+        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
+        $token = trim((string) $row->session_token);
+
+        if ($apiKey === '') {
+            return response()->json([
+                'message' => 'ConectR API key is not configured.',
+            ], 500);
+        }
+
+        try {
+            $http = Http::acceptJson()
+                ->timeout(30)
+                ->withHeaders([
+                    'X-API-Key' => $apiKey,
+                    'X-Frontend-URL' => $frontendUrl,
+                ]);
+            $response = strtoupper($method) === 'GET'
+                ? $http->get("{$baseUrl}/api/session/" . rawurlencode($token) . "/{$action}")
+                : $http->post("{$baseUrl}/api/session/" . rawurlencode($token) . "/{$action}");
+        } catch (ConnectionException $e) {
+            return response()->json([
+                'message' => 'ConectR service is unreachable right now.',
+            ], 502);
+        }
+
+        if ($response->failed()) {
+            return response()->json([
+                'message' => $response->json('message')
+                    ?? $response->json('detail')
+                    ?? 'ConectR request failed.',
+                'provider_status' => $response->status(),
+            ], $response->status() ?: 502);
+        }
+
+        return response()->json([
+            'message' => $response->json('message') ?: 'ConectR request completed.',
+            'provider_response' => $response->json(),
+        ]);
     }
 
     private function proxyConectrRequest(string $method, string $path, array $query = []): JsonResponse
@@ -1028,60 +1123,9 @@ class CustomerSessionLinkController extends Controller
 
     private function conectrSessionState(CustomerSessionLink $link): array
     {
-        if (data_get($link->raw_response, 'mode') === 'self_view') {
-            return [
-                'status' => data_get($link->raw_response, 'status', 'scheduled'),
-                'ended_at' => data_get($link->raw_response, 'ended_at'),
-            ];
-        }
-
-        $apiKey = trim((string) config('services.conectr_session.api_key', ''));
-        $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $token = trim((string) $link->session_token);
-
-        if ($apiKey === '' || $baseUrl === '' || $token === '') {
-            return [
-                'status' => data_get($link->raw_response, 'status', 'scheduled'),
-                'ended_at' => data_get($link->raw_response, 'ended_at'),
-            ];
-        }
-
-        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
-        $status = null;
-        $endedAt = null;
-
-        try {
-            $http = Http::acceptJson()
-                ->timeout(8)
-                ->withHeaders([
-                    'X-API-Key' => $apiKey,
-                    'X-Frontend-URL' => $frontendUrl,
-                ]);
-
-            $linksResponse = $http->get("{$baseUrl}/api/sessions/" . rawurlencode($token) . "/links");
-            if ($linksResponse->ok()) {
-                $links = $linksResponse->json() ?: [];
-                $status = data_get($links, 'status');
-                $endedAt = data_get($links, 'ended_at');
-            }
-
-            $analyticsResponse = $http->get("{$baseUrl}/api/session/" . rawurlencode($token) . "/analytics");
-            if ($analyticsResponse->ok()) {
-                $analytics = $analyticsResponse->json() ?: [];
-                $session = is_array(data_get($analytics, 'session')) ? data_get($analytics, 'session') : [];
-                $status = data_get($session, 'status') ?: $status;
-                $endedAt = data_get($session, 'ended_at') ?: $endedAt;
-            }
-        } catch (ConnectionException $e) {
-            return [
-                'status' => data_get($link->raw_response, 'status', 'scheduled'),
-                'ended_at' => data_get($link->raw_response, 'ended_at'),
-            ];
-        }
-
         return [
-            'status' => $status ?: data_get($link->raw_response, 'status', 'scheduled'),
-            'ended_at' => $endedAt ?: data_get($link->raw_response, 'ended_at'),
+            'status' => $link->status ?: 'scheduled',
+            'ended_at' => $link->ended_at,
         ];
     }
 

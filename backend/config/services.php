@@ -38,10 +38,13 @@ return [
     'conectr_session' => [
         'base_url' => env('CONECTR_SESSION_BASE_URL', 'https://conectr.pro'),
         'api_key' => env('CONECTR_SESSION_API_KEY', ''),
-        'frontend_url' => env('CONECTR_SESSION_FRONTEND_URL', 'https://conectr.pro'),
+        'frontend_url' => env('CONECTR_SESSION_FRONTEND_URL', 'https://conectr.co'),
         'self_view_path' => env('CONECTR_SESSION_SELF_VIEW_PATH', '/api/sessions/create-link'),
         'self_view_fallback_paths' => env('CONECTR_SESSION_SELF_VIEW_FALLBACK_PATHS', ''),
         'self_view_timeout' => env('CONECTR_SESSION_SELF_VIEW_TIMEOUT', 10),
+        'webhook_url' => env('CONECTR_WEBHOOK_URL', ''),
+        'webhook_secret' => env('CONECTR_WEBHOOK_SECRET', ''),
+        'webhook_payload_mode' => env('CONECTR_WEBHOOK_PAYLOAD_MODE', 'full'),
     ],
 
     'conectr' => [

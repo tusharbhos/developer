@@ -375,6 +375,11 @@ export interface CustomerSessionLink {
   self_view_expires_at?: string;
   meeting_date?: string;
   meeting_time?: string;
+  analytics_payload?: Record<string, unknown>;
+  summary_payload?: Record<string, unknown>;
+  feedback_payload?: Array<Record<string, unknown>>;
+  summary_generated_at?: string;
+  last_webhook_at?: string;
   raw_response?: Record<string, unknown>;
   expires_at?: string;
   created_at: string;
@@ -1100,6 +1105,23 @@ export const CustomerSessionLinkAPI = {
   customerAnalytics: (customerId: number, developerId?: string) =>
     apiFetch<{ data: ConectrCustomerAnalyticsResponse }>(
       `/customer-session-links/customer/${customerId}/analytics${developerId?.trim() ? `?developer_id=${encodeURIComponent(developerId.trim())}` : ""}`,
+    ),
+
+  sessionAnalytics: (sessionLinkId: number) =>
+    apiFetch<{ data: Record<string, unknown> }>(
+      `/customer-session-links/${sessionLinkId}/analytics`,
+    ),
+
+  generateSessionSummary: (sessionLinkId: number) =>
+    apiFetch<{ message: string; data?: Record<string, unknown> }>(
+      `/customer-session-links/${sessionLinkId}/generate-summary`,
+      { method: "POST" },
+    ),
+
+  endSession: (sessionLinkId: number) =>
+    apiFetch<{ message: string }>(
+      `/customer-session-links/${sessionLinkId}/end`,
+      { method: "POST" },
     ),
 
   generateCustomerMasterSummary: (customerId: number) =>

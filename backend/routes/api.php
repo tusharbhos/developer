@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ActivationRequestController;
 use App\Http\Controllers\Api\CompanyUserController;
 use App\Http\Controllers\Api\ConectrController;
+use App\Http\Controllers\Api\ConectrWebhookController;
 use App\Http\Controllers\Api\DeveloperUserController;
 use App\Http\Controllers\Api\SalesUserController;
 use App\Http\Controllers\Api\SourcingManagerController;
@@ -36,6 +37,8 @@ Route::get('email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
 
 // Public: activation request can be submitted without login
 Route::post('activation-requests', [ActivationRequestController::class, 'store']);
+Route::post('webhooks/conectr', [ConectrWebhookController::class, 'handle'])
+    ->middleware('throttle:120,1');
 Route::get('conectr/presentations/search', [ConectrController::class, 'presentations']);
 Route::get('conectr/meta', [ConectrController::class, 'meta']);
 Route::get('public/customer-project-links/{token}', [CustomerProjectLinkController::class, 'publicShow']);
@@ -86,6 +89,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/customer/{customerId}', [CustomerSessionLinkController::class, 'byCustomer']);
         Route::get('/customer/{customerId}/analytics', [CustomerSessionLinkController::class, 'customerAnalytics']);
         Route::post('/customer/{customerId}/master-summary', [CustomerSessionLinkController::class, 'customerMasterSummary']);
+        Route::get('/{id}/analytics', [CustomerSessionLinkController::class, 'sessionAnalytics']);
+        Route::post('/{id}/generate-summary', [CustomerSessionLinkController::class, 'generateSessionSummary']);
+        Route::post('/{id}/end', [CustomerSessionLinkController::class, 'endSession']);
     });
 
     // ── Activation Requests (authenticated user approvals) ──────────────
