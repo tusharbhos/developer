@@ -18,7 +18,6 @@ import SearchBar from "@/components/SearchBar";
 import SidebarFilter, { SidebarOptions } from "@/components/SidebarFilter";
 import PreSiteVisitModal from "@/components/PreSiteVisitModal";
 import AddProjectModal from "@/components/AddProjectModal";
-import AdminProjectLinkModal from "@/components/AdminProjectLinkModal";
 import { DEFAULT_FILTERS, FilterState } from "@/lib/mockData";
 import { ActivationApprovalProject, ActivationRequestAPI } from "@/lib/api";
 import { getToken } from "@/lib/api";
@@ -825,7 +824,6 @@ export default function ProjectsPage() {
   const [selectedProject, setSelectedProject] = useState("");
   const [toast, setToast] = useState("");
   const [addProjectOpen, setAddProjectOpen] = useState(false);
-  const [adminLinkOpen, setAdminLinkOpen] = useState(false);
 
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [approvalProjects, setApprovalProjects] = useState<
@@ -861,7 +859,6 @@ export default function ProjectsPage() {
     [cartItems],
   );
 
-  const isAdmin = user?.role === "admin";
   const isOwner = Boolean(user?.is_company_owner);
   const isRegularChannelPartner = Boolean(user?.company_id) && !isOwner;
   const isRestrictedProjectRole = false;
@@ -1357,17 +1354,6 @@ export default function ProjectsPage() {
         }}
       />
 
-      {isAdmin && (
-        <AdminProjectLinkModal
-          isOpen={adminLinkOpen}
-          onClose={() => setAdminLinkOpen(false)}
-          onSuccess={() => {
-            setToast("Project link saved successfully.");
-            setTimeout(() => setToast(""), 3500);
-          }}
-        />
-      )}
-
       <ProjectApprovalHubModal
         isOpen={showApprovalHub}
         projects={pendingApprovalProjects}
@@ -1547,8 +1533,8 @@ export default function ProjectsPage() {
           className="px-3 sm:px-4 md:px-8 py-3 md:py-4"
           style={{ background: "var(--gradient-header)" }}
         >
-          <div className="max-w-7xl mx-auto flex items-center gap-3">
-            <div className="flex-1 min-w-0">
+          <div className="max-w-7xl mx-auto">
+            <div>
               <SearchBar
                 value={search}
                 onChange={setSearch}
@@ -1556,18 +1542,6 @@ export default function ProjectsPage() {
                 activeFilterCount={activeFilterCount}
               />
             </div>
-            {isAdmin && (
-              <button
-                type="button"
-                className="btn btn-gold shrink-0 gap-2 text-sm"
-                onClick={() => setAdminLinkOpen(true)}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Add Project Link
-              </button>
-            )}
           </div>
         </div>
 

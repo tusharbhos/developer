@@ -175,7 +175,16 @@ export interface ApiUser {
   rera_no: string;
   phone: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   address: string;
+  experience_level?: string;
+  primary_market?: string[];
+  micro_markets?: string;
+  sell_cities?: string;
+  avg_leads_per_month?: number;
+  avg_site_visits_per_month?: number;
+  avg_closures_per_month?: number;
   role:
     | "user"
     | "admin"
@@ -366,6 +375,11 @@ export interface CustomerSessionLink {
   self_view_expires_at?: string;
   meeting_date?: string;
   meeting_time?: string;
+  analytics_payload?: Record<string, unknown>;
+  summary_payload?: Record<string, unknown>;
+  feedback_payload?: Array<Record<string, unknown>>;
+  summary_generated_at?: string;
+  last_webhook_at?: string;
   raw_response?: Record<string, unknown>;
   expires_at?: string;
   created_at: string;
@@ -476,7 +490,16 @@ export interface ProfileUpdatePayload {
   gst_no?: string;
   phone?: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   address?: string;
+  experience_level?: string;
+  primary_market?: string[];
+  micro_markets?: string;
+  sell_cities?: string;
+  avg_leads_per_month?: number;
+  avg_site_visits_per_month?: number;
+  avg_closures_per_month?: number;
   password?: string;
   password_confirmation?: string;
 }
@@ -1084,6 +1107,23 @@ export const CustomerSessionLinkAPI = {
       `/customer-session-links/customer/${customerId}/analytics${developerId?.trim() ? `?developer_id=${encodeURIComponent(developerId.trim())}` : ""}`,
     ),
 
+  sessionAnalytics: (sessionLinkId: number) =>
+    apiFetch<{ data: Record<string, unknown> }>(
+      `/customer-session-links/${sessionLinkId}/analytics`,
+    ),
+
+  generateSessionSummary: (sessionLinkId: number) =>
+    apiFetch<{ message: string; data?: Record<string, unknown> }>(
+      `/customer-session-links/${sessionLinkId}/generate-summary`,
+      { method: "POST" },
+    ),
+
+  endSession: (sessionLinkId: number) =>
+    apiFetch<{ message: string }>(
+      `/customer-session-links/${sessionLinkId}/end`,
+      { method: "POST" },
+    ),
+
   generateCustomerMasterSummary: (customerId: number) =>
     apiFetch<{ data: Record<string, unknown> }>(
       `/customer-session-links/customer/${customerId}/master-summary`,
@@ -1243,41 +1283,6 @@ export const ActivationRequestAPI = {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  PROJECT PRESENTATION LINK API  (admin only)
 // ══════════════════════════════════════════════════════════════════════════════
 
-export interface ProjectPresentationLink {
-  id: number;
-  developer_name: string;
-  project_name: string;
-  presentation_id: number;
-  with_developer_link?: string | null;
-  without_developer_link?: string | null;
-  seven_slide_link?: string | null;
-  created_at: string;
-}
-
-export interface CreateProjectPresentationLinkPayload {
-  developer_name: string;
-  project_name: string;
-  presentation_id: number;
-  with_developer_link?: string;
-  without_developer_link?: string;
-  seven_slide_link?: string;
-}
-
-export const ProjectPresentationLinkAPI = {
-  create: (payload: CreateProjectPresentationLinkPayload) =>
-    apiFetch<{ message: string; data: ProjectPresentationLink }>(
-      "/admin/project-presentation-links",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-    ),
-
-  list: () =>
-    apiFetch<{ data: ProjectPresentationLink[]; total: number }>(
-      "/admin/project-presentation-links",
-    ),
-};
+// End of API definitions.

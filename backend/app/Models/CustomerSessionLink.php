@@ -29,12 +29,31 @@ class CustomerSessionLink extends Model
         'presenter_link',
         'viewer_link',
         'expires_at',
+        'provider_status',
+        'started_at',
+        'ended_at',
+        'joinees',
+        'event_count',
+        'analytics_payload',
+        'summary_payload',
+        'feedback_payload',
+        'summary_generated_at',
+        'last_webhook_at',
         'raw_response',
     ];
 
     protected $casts = [
         'raw_response' => 'array',
         'expires_at' => 'datetime',
+        'started_at' => 'datetime',
+        'ended_at' => 'datetime',
+        'joinees' => 'integer',
+        'event_count' => 'integer',
+        'analytics_payload' => 'array',
+        'summary_payload' => 'array',
+        'feedback_payload' => 'array',
+        'summary_generated_at' => 'datetime',
+        'last_webhook_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -102,33 +121,39 @@ class CustomerSessionLink extends Model
 
     public function getStatusAttribute(): ?string
     {
-        $value = data_get($this->raw_response, 'status');
+        $value = $this->attributes['provider_status'] ?? data_get($this->raw_response, 'status');
 
         return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     public function getStartedAtAttribute(): ?string
     {
-        $value = data_get($this->raw_response, 'started_at');
+        $value = $this->attributes['started_at'] ?? data_get($this->raw_response, 'started_at');
 
-        return is_string($value) && trim($value) !== '' ? $value : null;
+        return $value ? (string) $this->asDateTime($value)->toIso8601String() : null;
     }
 
     public function getEndedAtAttribute(): ?string
     {
-        $value = data_get($this->raw_response, 'ended_at');
+        $value = $this->attributes['ended_at'] ?? data_get($this->raw_response, 'ended_at');
 
-        return is_string($value) && trim($value) !== '' ? $value : null;
+        return $value ? (string) $this->asDateTime($value)->toIso8601String() : null;
     }
 
     public function getJoineesAttribute(): int
     {
-        return (int) data_get($this->raw_response, 'joinees', 0);
+        return max(
+            (int) ($this->attributes['joinees'] ?? 0),
+            $this->normalizeCount(data_get($this->raw_response, 'joinees', 0)),
+        );
     }
 
     public function getEventCountAttribute(): int
     {
-        return (int) data_get($this->raw_response, 'event_count', 0);
+        return max(
+            (int) ($this->attributes['event_count'] ?? 0),
+            (int) data_get($this->raw_response, 'event_count', 0),
+        );
     }
 
     public function user(): BelongsTo
@@ -139,5 +164,10 @@ class CustomerSessionLink extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    private function normalizeCount(mixed $value): int
+    {
+        return is_countable($value) ? count($value) : max(0, (int) $value);
     }
 }

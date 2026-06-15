@@ -328,18 +328,13 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                 </div>
                 <div className="py-1">
                   {[
-                    ...(user?.role === "admin" ||
-                    user?.role === "developer_super_admin" ||
-                    user?.role === "sourcing_admin" ||
-                    user?.role === "sales_user"
-                      ? [
+                    ...[
                           {
                             icon: "👤",
                             label: "My Profile",
                             action: () => router.push("/profile"),
                           },
-                        ]
-                      : []),
+                        ],
                     ...(isAdmin
                       ? [
                           {
@@ -469,6 +464,40 @@ export default function Header({ variant = "landing" }: HeaderProps) {
 
             {/* Nav links */}
             <nav className="flex-1 overflow-y-auto p-2">
+              <Link href="/profile" onClick={() => setMobileOpen(false)}>
+                <button
+                  className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-semibold flex items-center gap-3 transition-all mb-0.5"
+                  style={{
+                    background:
+                      pathname === "/profile"
+                        ? "var(--navy-50)"
+                        : "transparent",
+                    color:
+                      pathname === "/profile"
+                        ? "var(--navy-700)"
+                        : "var(--color-text-secondary)",
+                    borderLeft:
+                      pathname === "/profile"
+                        ? "3px solid var(--navy-600)"
+                        : "3px solid transparent",
+                  }}
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.8}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0115 0"
+                    />
+                  </svg>
+                  My Profile
+                </button>
+              </Link>
               {navLinks.map((link) => {
                 const active = pathname === link.href;
                 return (

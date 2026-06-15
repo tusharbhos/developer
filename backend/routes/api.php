@@ -5,6 +5,8 @@ use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ActivationRequestController;
 use App\Http\Controllers\Api\CompanyUserController;
+use App\Http\Controllers\Api\ConectrController;
+use App\Http\Controllers\Api\ConectrWebhookController;
 use App\Http\Controllers\Api\DeveloperUserController;
 use App\Http\Controllers\Api\SalesUserController;
 use App\Http\Controllers\Api\SourcingManagerController;
@@ -12,7 +14,6 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CustomerProjectLinkController;
 use App\Http\Controllers\Api\CustomerSessionLinkController;
 use App\Http\Controllers\Api\ProjectRequestController;
-use App\Http\Controllers\Api\ProjectPresentationLinkController;
 use Illuminate\Support\Facades\Route;
 
 // ── Health check ──────────────────────────────────────────
@@ -36,6 +37,10 @@ Route::get('email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
 
 // Public: activation request can be submitted without login
 Route::post('activation-requests', [ActivationRequestController::class, 'store']);
+Route::post('webhooks/conectr', [ConectrWebhookController::class, 'handle'])
+    ->middleware('throttle:120,1');
+Route::get('conectr/presentations/search', [ConectrController::class, 'presentations']);
+Route::get('conectr/meta', [ConectrController::class, 'meta']);
 Route::get('public/customer-project-links/{token}', [CustomerProjectLinkController::class, 'publicShow']);
 Route::post('public/customer-project-links/{token}/like', [CustomerProjectLinkController::class, 'publicLike']);
 Route::post('public/customer-project-links/{token}/self-view-session', [CustomerSessionLinkController::class, 'publicSelfViewStore']);
@@ -84,6 +89,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/customer/{customerId}', [CustomerSessionLinkController::class, 'byCustomer']);
         Route::get('/customer/{customerId}/analytics', [CustomerSessionLinkController::class, 'customerAnalytics']);
         Route::post('/customer/{customerId}/master-summary', [CustomerSessionLinkController::class, 'customerMasterSummary']);
+        Route::get('/{id}/analytics', [CustomerSessionLinkController::class, 'sessionAnalytics']);
+        Route::post('/{id}/generate-summary', [CustomerSessionLinkController::class, 'generateSessionSummary']);
+        Route::post('/{id}/end', [CustomerSessionLinkController::class, 'endSession']);
     });
 
     // ── Activation Requests (authenticated user approvals) ──────────────
@@ -161,11 +169,4 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('project-requests/{id}', [ProjectRequestController::class, 'adminUpdate']);
     });
 
-    // ── Project Presentation Links (admin only) ───────────────
-    Route::middleware('admin')->prefix('admin/project-presentation-links')->group(function () {
-        Route::get('/',      [ProjectPresentationLinkController::class, 'index']);
-        Route::post('/',     [ProjectPresentationLinkController::class, 'store']);
-        Route::put('/{id}',  [ProjectPresentationLinkController::class, 'update']);
-        Route::delete('/{id}', [ProjectPresentationLinkController::class, 'destroy']);
-    });
 });

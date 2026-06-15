@@ -1,5 +1,5 @@
-export const CONECTR_API =
-  process.env.NEXT_PUBLIC_CONECTR_API ?? "https://conectr.biz/api";
+import { getApiBaseUrl } from "@/lib/api";
+
 export const STORAGE_URL =
   process.env.NEXT_PUBLIC_STORAGE_URL ?? "https://conectr.biz/storage";
 
@@ -95,6 +95,38 @@ export type PaginatedProjectsResponse = {
   total?: number;
 };
 
+function conectrProxyUrl(
+  endpoint: "/presentations/search" | "/meta",
+  providerUrl?: string,
+): string {
+  const url = new URL(`${getApiBaseUrl()}/conectr${endpoint}`);
+
+  if (providerUrl) {
+    const provider = new URL(providerUrl, "https://conectr.biz");
+    provider.searchParams.forEach((value, key) => {
+      url.searchParams.append(key, value);
+    });
+  }
+
+  return url.toString();
+}
+
+async function conectrFetch<T>(
+  endpoint: "/presentations/search" | "/meta",
+  providerUrl?: string,
+): Promise<T> {
+  const response = await fetch(conectrProxyUrl(endpoint, providerUrl), {
+    headers: { Accept: "application/json" },
+  });
+  const data = (await response.json()) as T & { message?: string };
+
+  if (!response.ok) {
+    throw new Error(data.message || `ConectR request failed (${response.status})`);
+  }
+
+  return data;
+}
+
 export function toNumber(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0;
   const cleaned =
@@ -188,14 +220,17 @@ export async function fetchAllProjects(): Promise<{
   projects: ApiProject[];
   total: number;
 }> {
-  let url: string | null = `${CONECTR_API}/presentations/search`;
+  let url: string | null = null;
   let expectedTotal = 0;
   const seen = new Set<number>();
   const all: ApiProject[] = [];
 
-  while (url) {
-    const response = await fetch(url);
-    const data = (await response.json()) as PaginatedProjectsResponse;
+  do {
+    const data: PaginatedProjectsResponse =
+      await conectrFetch<PaginatedProjectsResponse>(
+        "/presentations/search",
+        url ?? undefined,
+      );
     if (!expectedTotal) expectedTotal = toNumber(data.total);
 
     const list = data.data ?? [];
@@ -206,7 +241,7 @@ export async function fetchAllProjects(): Promise<{
     });
 
     url = data.next_page_url ?? null;
-  }
+  } while (url);
 
   return { projects: all, total: expectedTotal || all.length };
 }
@@ -216,20 +251,22 @@ export async function fetchProjectById(
 ): Promise<ApiProject | null> {
   if (!Number.isFinite(projectId) || projectId <= 0) return null;
 
-  let url: string | null = `${CONECTR_API}/presentations/search`;
+  let url: string | null = null;
 
-  while (url) {
-    const response = await fetch(url);
-    const data = (await response.json()) as PaginatedProjectsResponse;
+  do {
+    const data: PaginatedProjectsResponse =
+      await conectrFetch<PaginatedProjectsResponse>(
+        "/presentations/search",
+        url ?? undefined,
+      );
     const found = (data.data ?? []).find((item) => item.id === projectId);
     if (found) return found;
     url = data.next_page_url ?? null;
-  }
+  } while (url);
 
   return null;
 }
 
 export async function fetchMeta(): Promise<MetaResponse> {
-  const response = await fetch(`${CONECTR_API}/meta`);
-  return (await response.json()) as MetaResponse;
+  return conectrFetch<MetaResponse>("/meta");
 }

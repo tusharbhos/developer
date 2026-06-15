@@ -7,10 +7,8 @@ use App\Models\Customer;
 use App\Models\CustomerProjectLink;
 use App\Models\CustomerSessionLink;
 use App\Models\User;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class CustomerProjectLinkController extends Controller
@@ -494,53 +492,9 @@ class CustomerProjectLinkController extends Controller
 
     private function conectrSessionState(CustomerSessionLink $link): array
     {
-        $apiKey = trim((string) config('services.conectr_session.api_key', ''));
-        $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $token = trim((string) $link->session_token);
-
-        if ($apiKey === '' || $baseUrl === '' || $token === '') {
-            return [
-                'status' => data_get($link->raw_response, 'status', 'scheduled'),
-                'ended_at' => data_get($link->raw_response, 'ended_at'),
-            ];
-        }
-
-        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
-        $status = null;
-        $endedAt = null;
-
-        try {
-            $http = Http::acceptJson()
-                ->timeout(8)
-                ->withHeaders([
-                    'X-API-Key' => $apiKey,
-                    'X-Frontend-URL' => $frontendUrl,
-                ]);
-
-            $linksResponse = $http->get("{$baseUrl}/api/sessions/" . rawurlencode($token) . "/links");
-            if ($linksResponse->ok()) {
-                $links = $linksResponse->json() ?: [];
-                $status = data_get($links, 'status');
-                $endedAt = data_get($links, 'ended_at');
-            }
-
-            $analyticsResponse = $http->get("{$baseUrl}/api/session/" . rawurlencode($token) . "/analytics");
-            if ($analyticsResponse->ok()) {
-                $analytics = $analyticsResponse->json() ?: [];
-                $session = is_array(data_get($analytics, 'session')) ? data_get($analytics, 'session') : [];
-                $status = data_get($session, 'status') ?: $status;
-                $endedAt = data_get($session, 'ended_at') ?: $endedAt;
-            }
-        } catch (ConnectionException $e) {
-            return [
-                'status' => data_get($link->raw_response, 'status', 'scheduled'),
-                'ended_at' => data_get($link->raw_response, 'ended_at'),
-            ];
-        }
-
         return [
-            'status' => $status ?: data_get($link->raw_response, 'status', 'scheduled'),
-            'ended_at' => $endedAt ?: data_get($link->raw_response, 'ended_at'),
+            'status' => $link->status ?: 'scheduled',
+            'ended_at' => $link->ended_at,
         ];
     }
 

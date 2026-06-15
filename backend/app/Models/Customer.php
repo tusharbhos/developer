@@ -133,6 +133,11 @@ class Customer extends Model
                 'session_link_count' => (int) ($summary['session_link_count'] ?? 0),
                 'latest_session_link_id' => $summary['latest_session_link_id'] ?? null,
                 'latest_session_created_at' => $summary['latest_session_created_at'] ?? null,
+                'latest_session_status' => $summary['latest_session_status'] ?? ($project['latest_session_status'] ?? null),
+                'latest_session_started_at' => $summary['latest_session_started_at'] ?? ($project['latest_session_started_at'] ?? null),
+                'latest_session_ended_at' => $summary['latest_session_ended_at'] ?? ($project['latest_session_ended_at'] ?? null),
+                'latest_session_joinees' => (int) ($summary['latest_session_joinees'] ?? ($project['latest_session_joinees'] ?? 0)),
+                'latest_session_event_count' => (int) ($summary['latest_session_event_count'] ?? ($project['latest_session_event_count'] ?? 0)),
             ]);
             $updated = true;
         }

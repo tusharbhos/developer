@@ -156,21 +156,6 @@ type CalendarEntry = MeetingEntry & {
   siteVisitFeedback?: SiteVisitFeedbackDetails;
 };
 
-const CONECTR_SESSION_BASE_URL = (() => {
-  const rawBaseUrl =
-    process.env.NEXT_PUBLIC_CONECTR_SESSION_BASE_URL?.trim() || "";
-  const sanitizedBaseUrl =
-    rawBaseUrl && rawBaseUrl !== "undefined" && rawBaseUrl !== "null"
-      ? rawBaseUrl
-      : "https://conectr.pro";
-
-  return sanitizedBaseUrl.replace(/\/+$/, "");
-})();
-
-function buildConectrSessionAnalyticsUrl(sessionToken: string) {
-  return `${CONECTR_SESSION_BASE_URL}/api/session/${encodeURIComponent(sessionToken)}/analytics`;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1263,20 +1248,8 @@ export default function CalendarPage() {
             return null;
           }
 
-          const analyticsRes = await fetch(
-            buildConectrSessionAnalyticsUrl(sessionLink.session_token),
-            {
-              method: "GET",
-              headers: { Accept: "application/json" },
-            },
-          );
-
-          if (!analyticsRes.ok) {
-            return null;
-          }
-
-          const analytics =
-            (await analyticsRes.json()) as ConectrAnalyticsResponse;
+          const analytics = (sessionLink.analytics_payload ??
+            {}) as ConectrAnalyticsResponse;
           const feedbackCount = Math.max(
             Array.isArray(analytics.feedback_submissions)
               ? analytics.feedback_submissions.length
