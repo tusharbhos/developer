@@ -23,7 +23,7 @@ import { ActivationApprovalProject, ActivationRequestAPI } from "@/lib/api";
 import { getToken } from "@/lib/api";
 import {
   ApiProject,
-  fetchAllProjects,
+  fetchProjectsPage,
   fetchMeta,
   getProjectDetailPath,
   getProjectShowcaseVideo,
@@ -37,7 +37,53 @@ import {
 
 /* ── how many cards per "page" load ── */
 const PAGE_SIZE = 12;
-const PROJECTS_CACHE_KEY = "projects:list:v1";
+const PROJECTS_CACHE_KEY = "projects:first-page:v2";
+
+type ProjectsPageCache = {
+  projects: ApiProject[];
+  pendingProjects: ApiProject[];
+  nextPageUrl: string | null;
+  total: number;
+  savedAt: number;
+};
+
+async function fetchProjectBatch(
+  providerUrl: string | null,
+  pendingProjects: ApiProject[] = [],
+  knownTotal = 0,
+): Promise<{
+  projects: ApiProject[];
+  pendingProjects: ApiProject[];
+  nextPageUrl: string | null;
+  total: number;
+}> {
+  const buffered = [...pendingProjects];
+  let nextUrl = providerUrl;
+  let total = knownTotal;
+  let isFirstRequest = providerUrl === null && pendingProjects.length === 0;
+
+  while (buffered.length < PAGE_SIZE && (isFirstRequest || nextUrl)) {
+    const page = await fetchProjectsPage(
+      isFirstRequest ? undefined : nextUrl ?? undefined,
+      PAGE_SIZE,
+    );
+    isFirstRequest = false;
+    total = page.total || total;
+    nextUrl = page.nextPageUrl;
+
+    const seen = new Set(buffered.map((project) => project.id));
+    buffered.push(
+      ...page.projects.filter((project) => !seen.has(project.id)),
+    );
+  }
+
+  return {
+    projects: buffered.slice(0, PAGE_SIZE),
+    pendingProjects: buffered.slice(PAGE_SIZE),
+    nextPageUrl: nextUrl,
+    total: total || buffered.length,
+  };
+}
 
 function valueInString(selected: string[], actual: string): boolean {
   if (!selected.length) return true;
@@ -150,9 +196,26 @@ function InfoIcon({
 
 function PageLoader() {
   return (
-    <div className="page-loader">
-      <div className="spinner spinner-lg" />
-      <p className="page-loader-text">Loading projects…</p>
+    <div className="bg-main min-h-screen flex flex-col">
+      <Header variant="app" />
+      <main className="flex-1" style={{ paddingTop: "var(--header-height)" }}>
+        <div
+          className="px-3 sm:px-4 md:px-8 py-3 md:py-4"
+          style={{ background: "var(--gradient-header)" }}
+        >
+          <div
+            className="max-w-7xl mx-auto skeleton"
+            style={{ height: 42, borderRadius: 12 }}
+          />
+        </div>
+        <div className="px-3 sm:px-4 md:px-8 py-4 md:py-6 max-w-7xl mx-auto">
+          <div className="grid-auto-fill-280">
+            {Array.from({ length: PAGE_SIZE }).map((_, index) => (
+              <SkeletonCard key={`initial-project-${index}`} />
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
@@ -185,7 +248,7 @@ function AddProjectBanner({ onAdd }: { onAdd: () => void }) {
               color: "var(--navy-900)",
             }}
           >
-            Don't find your project?
+            Don&apos;t find your project?
           </p>
           <p
             className="text-xs mt-0.5"
@@ -288,29 +351,74 @@ function SkeletonCard() {
   );
 }
 
-function AutoPlayVideo({ src }: { src: string }) {
+function AutoPlayVideo({
+  src,
+  loop = true,
+  onEnded,
+}: {
+  src: string;
+  loop?: boolean;
+  onEnded?: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "250px" },
+    );
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [src]);
+
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || !shouldLoad) return;
     v.muted = true;
     v.play().catch(() => {});
-  }, [src]);
+  }, [src, shouldLoad]);
+
   return (
-    <video
-      ref={videoRef}
-      src={src}
-      loop
-      muted
-      playsInline
+    <div
+      ref={containerRef}
       style={{
         width: "100%",
         height: "100%",
-        objectFit: "cover",
-        display: "block",
-        pointerEvents: "none",
+        background: "#020617",
       }}
-    />
+    >
+      {shouldLoad ? (
+        <video
+          ref={videoRef}
+          src={src}
+          loop={loop}
+          muted
+          playsInline
+          preload="metadata"
+          onEnded={onEnded}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+            pointerEvents: "none",
+          }}
+        />
+      ) : (
+        <div className="skeleton" style={{ width: "100%", height: "100%" }} />
+      )}
+    </div>
   );
 }
 
@@ -341,10 +449,6 @@ function ProjectCardUI({
     [project],
   );
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
-
-  useEffect(() => {
-    setActiveVideoIndex(0);
-  }, [project.id, showcaseVideos.length]);
 
   const hasMultipleVideos = showcaseVideos.length > 1;
   const showcaseVideoUrl =
@@ -392,20 +496,10 @@ function ProjectCardUI({
             background: "#020617",
           }}
         >
-          <video
+          <AutoPlayVideo
             src={showcaseVideoUrl}
-            autoPlay
             loop={!hasMultipleVideos}
-            muted
-            playsInline
-            preload="auto"
             onEnded={hasMultipleVideos ? goNextVideo : undefined}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-            }}
           />
         </div>
       ) : image ? (
@@ -831,11 +925,13 @@ export default function ProjectsPage() {
   >([]);
   const [metaLoading, setMetaLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [nextPageUrl, setNextPageUrl] = useState<string | null>(null);
+  const [pendingProjects, setPendingProjects] = useState<ApiProject[]>([]);
+  const [totalProjects, setTotalProjects] = useState(0);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvingId, setApprovingId] = useState<number | null>(null);
 
   /* ── pagination state ── */
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -875,13 +971,19 @@ export default function ProjectsPage() {
       let usedCache = false;
       if (typeof window !== "undefined") {
         const cachedProjects =
-          window.sessionStorage.getItem(PROJECTS_CACHE_KEY);
+          window.localStorage.getItem(PROJECTS_CACHE_KEY);
         if (cachedProjects) {
           try {
-            const parsedProjects = JSON.parse(cachedProjects) as ApiProject[];
-            if (Array.isArray(parsedProjects) && parsedProjects.length > 0) {
+            const cache = JSON.parse(cachedProjects) as ProjectsPageCache;
+            if (
+              Array.isArray(cache.projects) &&
+              cache.projects.length > 0
+            ) {
               if (active) {
-                setProjects(parsedProjects);
+                setProjects(cache.projects.slice(0, PAGE_SIZE));
+                setPendingProjects(cache.pendingProjects ?? []);
+                setNextPageUrl(cache.nextPageUrl);
+                setTotalProjects(cache.total);
                 setProjectsLoading(false);
               }
               usedCache = true;
@@ -894,13 +996,44 @@ export default function ProjectsPage() {
 
       try {
         if (!usedCache) setProjectsLoading(true);
-        const { projects: all } = await fetchAllProjects();
+        const firstPage = await fetchProjectsPage(undefined, PAGE_SIZE);
+        if (active && !usedCache) {
+          setProjects(firstPage.projects);
+          setNextPageUrl(firstPage.nextPageUrl);
+          setTotalProjects(firstPage.total);
+          setProjectsLoading(false);
+          window.localStorage.setItem(
+            PROJECTS_CACHE_KEY,
+            JSON.stringify({
+              projects: firstPage.projects,
+              pendingProjects: [],
+              nextPageUrl: firstPage.nextPageUrl,
+              total: firstPage.total,
+              savedAt: Date.now(),
+            } satisfies ProjectsPageCache),
+          );
+        }
+
+        const page = await fetchProjectBatch(
+          firstPage.nextPageUrl,
+          firstPage.projects,
+          firstPage.total,
+        );
         if (active) {
-          setProjects(all);
+          setProjects(page.projects);
+          setPendingProjects(page.pendingProjects);
+          setNextPageUrl(page.nextPageUrl);
+          setTotalProjects(page.total);
           if (typeof window !== "undefined") {
-            window.sessionStorage.setItem(
+            window.localStorage.setItem(
               PROJECTS_CACHE_KEY,
-              JSON.stringify(all),
+              JSON.stringify({
+                projects: page.projects,
+                pendingProjects: page.pendingProjects,
+                nextPageUrl: page.nextPageUrl,
+                total: page.total,
+                savedAt: Date.now(),
+              } satisfies ProjectsPageCache),
             );
           }
         }
@@ -1159,28 +1292,33 @@ export default function ProjectsPage() {
     user?.assigned_projects,
   ]);
 
-  /* ── reset visible count when filter/search changes ── */
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [search, filters]);
-
-  /* ── visible slice ── */
-  const visibleProjects = useMemo(
-    () => filteredProjects.slice(0, visibleCount),
-    [filteredProjects, visibleCount],
-  );
-
-  const hasMore = visibleCount < filteredProjects.length;
+  const visibleProjects = filteredProjects;
+  const hasMore = pendingProjects.length > 0 || Boolean(nextPageUrl);
 
   /* ── IntersectionObserver — load more when sentinel enters viewport ── */
   const loadMore = useCallback(() => {
-    if (!hasMore || loadingMore) return;
+    if ((!nextPageUrl && pendingProjects.length === 0) || loadingMore) return;
     setLoadingMore(true);
-    setVisibleCount((prev) =>
-      Math.min(prev + PAGE_SIZE, filteredProjects.length),
-    );
-    setLoadingMore(false);
-  }, [hasMore, loadingMore, filteredProjects.length]);
+    void fetchProjectBatch(nextPageUrl, pendingProjects, totalProjects)
+      .then((page) => {
+        setProjects((current) => {
+          const seen = new Set(current.map((project) => project.id));
+          const nextProjects = [
+            ...current,
+            ...page.projects.filter((project) => !seen.has(project.id)),
+          ];
+          return nextProjects;
+        });
+        setPendingProjects(page.pendingProjects);
+        setNextPageUrl(page.nextPageUrl);
+        setTotalProjects(page.total);
+      })
+      .catch(() => {
+        setToast("Unable to load more projects.");
+        setTimeout(() => setToast(""), 2500);
+      })
+      .finally(() => setLoadingMore(false));
+  }, [nextPageUrl, pendingProjects, totalProjects, loadingMore]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -1321,7 +1459,7 @@ export default function ProjectsPage() {
     setShowApprovalPrompt(false);
   }, []);
 
-  if (isLoading || projectsLoading) return <PageLoader />;
+  if ((isLoading && !isAuthenticated) || projectsLoading) return <PageLoader />;
   if (!isAuthenticated) return null;
 
   return (
@@ -1560,8 +1698,11 @@ export default function ProjectsPage() {
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {/* show how many are visible vs total */}
-                Showing {visibleProjects.length} of {filteredProjects.length}{" "}
-                project{filteredProjects.length !== 1 ? "s" : ""}
+                Showing {visibleProjects.length} of{" "}
+                {activeFilterCount > 0 || search.trim()
+                  ? `${filteredProjects.length} matching`
+                  : totalProjects || projects.length}{" "}
+                project{(totalProjects || projects.length) !== 1 ? "s" : ""}
                 {activeFilterCount > 0 &&
                   ` · ${activeFilterCount} filter${activeFilterCount !== 1 ? "s" : ""} active`}
               </p>
@@ -1638,12 +1779,9 @@ export default function ProjectsPage() {
 
                 {/* Skeleton placeholders while loading more */}
                 {loadingMore &&
-                  Array.from({
-                    length: Math.min(
-                      PAGE_SIZE,
-                      filteredProjects.length - visibleCount,
-                    ),
-                  }).map((_, i) => <SkeletonCard key={`sk-${i}`} />)}
+                  Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                    <SkeletonCard key={`sk-${i}`} />
+                  ))}
               </div>
 
               {/* ── Sentinel div — IntersectionObserver watches this ── */}
@@ -1682,7 +1820,7 @@ export default function ProjectsPage() {
                           color: "var(--navy-600)",
                         }}
                       >
-                        All {filteredProjects.length} projects loaded
+                        All {projects.length} projects loaded
                       </span>
                     </div>
                   </div>
@@ -1726,7 +1864,7 @@ export default function ProjectsPage() {
                         color: "var(--navy-600)",
                       }}
                     >
-                      {filteredProjects.length - visibleCount} left
+                      {Math.max(0, totalProjects - projects.length)} left
                     </span>
                   </button>
                 </div>

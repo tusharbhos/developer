@@ -91,6 +91,9 @@ export type MetaResponse = {
 
 export type PaginatedProjectsResponse = {
   data?: ApiProject[];
+  current_page?: number;
+  last_page?: number;
+  per_page?: number;
   next_page_url?: string | null;
   total?: number;
 };
@@ -244,6 +247,29 @@ export async function fetchAllProjects(): Promise<{
   } while (url);
 
   return { projects: all, total: expectedTotal || all.length };
+}
+
+export async function fetchProjectsPage(
+  providerUrl?: string,
+  perPage = 12,
+): Promise<{
+  projects: ApiProject[];
+  nextPageUrl: string | null;
+  total: number;
+}> {
+  const url =
+    providerUrl ??
+    `https://conectr.biz/api/presentations/search?page=1&per_page=${perPage}`;
+  const data = await conectrFetch<PaginatedProjectsResponse>(
+    "/presentations/search",
+    url,
+  );
+
+  return {
+    projects: data.data ?? [],
+    nextPageUrl: data.next_page_url ?? null,
+    total: toNumber(data.total) || (data.data ?? []).length,
+  };
 }
 
 export async function fetchProjectById(

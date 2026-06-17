@@ -543,7 +543,10 @@ export const AuthAPI = {
   logout: () =>
     apiFetch<{ message: string }>("/auth/logout", { method: "POST" }),
 
-  me: () => apiFetch<{ user: ApiUser; email_verified: boolean }>("/auth/me"),
+  me: (signal?: AbortSignal) =>
+    apiFetch<{ user: ApiUser; email_verified: boolean }>("/auth/me", {
+      signal,
+    }),
 
   updateProfile: (payload: ProfileUpdatePayload | FormData) => {
     if (typeof FormData !== "undefined" && payload instanceof FormData) {
