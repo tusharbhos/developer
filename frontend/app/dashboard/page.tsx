@@ -451,6 +451,32 @@ function extractSessionSummaryRecord(
   );
 }
 
+const FEEDBACK_FIELD_LABELS: Record<string, string> = {
+  viewername: "Viewer Name",
+  topconcerns: "Top Concerns",
+  objectiontags: "Objection Tags",
+  phonelast4: "Phone Last 4",
+  preferreddate: "Preferred Date",
+  preferredtime: "Preferred Time",
+  preferredunit: "Preferred Unit",
+};
+
+function normalizeFeedbackFieldKey(key: string) {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function curatedFeedbackRows(source: Record<string, unknown>) {
+  return Object.entries(source)
+    .map(([key, value]) => ({
+      key: FEEDBACK_FIELD_LABELS[normalizeFeedbackFieldKey(key)],
+      value,
+    }))
+    .filter(
+      (row): row is { key: string; value: unknown } =>
+        Boolean(row.key) && row.value !== null && row.value !== undefined && row.value !== "",
+    );
+}
+
 function hasAnalysisPayload(value: unknown): boolean {
   const summary = extractSummaryRecord(value);
   return Boolean(summary && Object.keys(summary).length > 0);
@@ -549,15 +575,12 @@ function extractFeedbackSummaryRows(
   return (feedbackRows || []).map((row, index) => {
     const answers = extractFeedbackAnswers(row);
     const detailSource = Object.keys(answers).length > 0 ? answers : row;
-    const detailRows = Object.entries(detailSource)
-      .filter(([, value]) => value !== null && value !== undefined && value !== "")
-      .map(([key, value]) => ({ key, value }));
+    const detailRows = curatedFeedbackRows(detailSource);
 
     return {
       id: `${row.id ?? row.created_at ?? row.submitted_at ?? index}`,
-      formName: String(row.form_name ?? row.form_title ?? row.form ?? "-") || "-",
-      status:
-        String(row.status ?? row.submission_status ?? "submitted") || "submitted",
+      formName: "Site Visit",
+      status: "submitted",
       submittedAt: formatDateTimeValue(
         typeof row.created_at === "string"
           ? row.created_at
@@ -979,7 +1002,7 @@ export default function DashboardPage() {
             result.status === "fulfilled" ? result.value : [],
           )
           .filter((row) => {
-            const key = `${row.sessionToken}:${row.meetingDate}:${row.meetingTime}`;
+            const key = `${row.sessionToken || row.key}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;

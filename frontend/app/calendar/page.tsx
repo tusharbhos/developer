@@ -80,10 +80,10 @@ const SITE_VISIT_PILL = {
   dot: "#16a34a",
 };
 const LIVE_PILL = {
-  bg: "rgba(124,58,237,0.14)",
-  text: "#5b21b6",
-  border: "rgba(124,58,237,0.34)",
-  dot: "#7c3aed",
+  bg: "rgba(239,68,68,0.16)",
+  text: "#b91c1c",
+  border: "rgba(239,68,68,0.36)",
+  dot: "#ef4444",
 };
 const SELF_VIEW_PILL = {
   bg: "rgba(147,51,234,0.16)",
@@ -387,6 +387,32 @@ function analyticsHasSummary(analytics: ConectrAnalyticsResponse): boolean {
   );
 }
 
+const FEEDBACK_FIELD_LABELS: Record<string, string> = {
+  viewername: "Viewer Name",
+  topconcerns: "Top Concerns",
+  objectiontags: "Objection Tags",
+  phonelast4: "Phone Last 4",
+  preferreddate: "Preferred Date",
+  preferredtime: "Preferred Time",
+  preferredunit: "Preferred Unit",
+};
+
+function normalizeFeedbackFieldKey(key: string) {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function curatedFeedbackRows(source: Record<string, unknown>) {
+  return Object.entries(source)
+    .map(([key, value]) => ({
+      key: FEEDBACK_FIELD_LABELS[normalizeFeedbackFieldKey(key)],
+      value,
+    }))
+    .filter(
+      (row): row is { key: string; value: unknown } =>
+        Boolean(row.key) && row.value !== null && row.value !== undefined && row.value !== "",
+    );
+}
+
 function buildCalendarCustomer(
   sessionLink: CalendarSessionLink,
   fallbackCustomer?: Customer,
@@ -448,6 +474,9 @@ function extractSiteVisitEntries(
     );
 
     const answers = extractFeedbackAnswers(eventRecord);
+    const curatedAnswers = Object.fromEntries(
+      curatedFeedbackRows(answers).map((row) => [row.key, row.value]),
+    );
     const formName =
       firstString(
         eventRecord.form_name,
@@ -512,7 +541,7 @@ function extractSiteVisitEntries(
           formName,
           submittedAt,
           preferredDateTime: preferredSiteVisitValue || submittedAt || "",
-          answers,
+          answers: curatedAnswers,
           sessionLinkId: sessionLink.id,
           sessionToken: sessionLink.session_token || source,
         },
@@ -526,6 +555,7 @@ function isCalendarVisibleSelfView(sessionLink: CalendarSessionLink) {
     Boolean(sessionLink.self_view_url) &&
     Boolean(sessionLink.meeting_date) &&
     Boolean(sessionLink.meeting_time) &&
+    sessionLink.raw_response?.mode === "self_view" &&
     sessionLink.raw_response?.self_view_calendar_visible === true
   );
 }
@@ -1332,7 +1362,7 @@ export default function CalendarPage() {
             : [],
         )
         .filter((entry) => {
-          const uniqueKey = `${entry.siteVisitFeedback?.sessionLinkId ?? "na"}:${entry.meeting_date}:${entry.meeting_time}`;
+          const uniqueKey = `${entry.siteVisitFeedback?.sessionLinkId ?? entry.siteVisitFeedback?.sessionToken ?? "na"}`;
           if (seenKeys.has(uniqueKey)) {
             return false;
           }
