@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
-import { AuthAPI, ProfileUpdatePayload } from "@/lib/api";
+import { AuthAPI, ProfileUpdatePayload, getApiBaseUrl } from "@/lib/api";
 import { isStrongPassword, PASSWORD_POLICY_ERROR } from "@/lib/passwordPolicy";
 
 type StepId = "personal" | "company" | "business" | "image" | "password";
@@ -104,6 +104,36 @@ function numberValue(value: string): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function resolveProfileImageUrl(value?: string | null): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+
+  const apiBase = getApiBaseUrl().replace(/\/api\/?$/, "");
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (
+        /^(localhost|127\.0\.0\.1)$/i.test(url.hostname) &&
+        url.pathname.startsWith("/storage/")
+      ) {
+        return `${apiBase}${url.pathname}${url.search}`;
+      }
+    } catch {
+      return raw;
+    }
+    return raw;
+  }
+
+  const path = raw.startsWith("/")
+    ? raw
+    : raw.startsWith("storage/")
+      ? `/${raw}`
+      : `/storage/${raw}`;
+  return `${apiBase}${path}`;
+}
+
 export default function ProfilePage() {
   const { user, isAuthenticated, isLoading, refreshUser } = useAuth();
   const router = useRouter();
@@ -113,6 +143,7 @@ export default function ProfilePage() {
   const [isError, setIsError] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState("");
+  const [profileImageBroken, setProfileImageBroken] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -165,7 +196,10 @@ export default function ProfilePage() {
       ),
       avg_closures_per_month: String(user.avg_closures_per_month ?? ""),
     });
-    setProfileImagePreview(user.profile_image_url ?? "");
+    setProfileImagePreview(
+      resolveProfileImageUrl(user.profile_image_url || user.profile_image),
+    );
+    setProfileImageBroken(false);
     setProfileImageFile(null);
   }, [user]);
 
@@ -230,7 +264,19 @@ export default function ProfilePage() {
     setSavingStep(step);
     setMessage("");
     try {
-      await AuthAPI.updateProfile(payload);
+      const response = await AuthAPI.updateProfile(payload);
+      if (step === "image") {
+        const freshImageUrl = resolveProfileImageUrl(
+          response.user.profile_image_url || response.user.profile_image,
+        );
+        if (freshImageUrl) {
+          setProfileImagePreview(
+            `${freshImageUrl}${freshImageUrl.includes("?") ? "&" : "?"}v=${Date.now()}`,
+          );
+          setProfileImageBroken(false);
+          setProfileImageFile(null);
+        }
+      }
       await refreshUser();
       showMessage(`${steps.find((item) => item.id === step)?.title} saved.`);
       if (activeIndex < steps.length - 1) {
@@ -331,6 +377,7 @@ export default function ProfilePage() {
     }
     setProfileImageFile(file);
     setProfileImagePreview(URL.createObjectURL(file));
+    setProfileImageBroken(false);
     setMessage("");
   };
 
@@ -346,8 +393,13 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-main">
       <Header variant="app" />
 
-      <main style={{ paddingTop: "var(--header-height)" }}>
-        <section style={{ background: "var(--gradient-header)" }}>
+      <main style={{ paddingTop: "calc(var(--header-height) + 0.75rem)" }}>
+        <section
+          style={{
+            background: "var(--gradient-header)",
+            paddingTop: "0.75rem",
+          }}
+        >
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 text-white sm:px-6 md:flex-row md:items-center md:justify-between md:gap-8 md:py-8 lg:px-8">
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-blue-200">
@@ -373,16 +425,17 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-5 px-4 py-5 sm:px-6 md:py-7 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:px-8">
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-5 px-4 py-6 sm:px-6 md:py-8 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:px-8">
           <aside className="overflow-hidden rounded-3xl border border-white/70 bg-white/85 p-4 shadow-xl backdrop-blur-xl lg:sticky lg:top-[calc(var(--header-height)+1.25rem)]">
             <div className="flex items-center gap-4 border-b border-slate-200 px-1 pb-4">
-              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] border-orange-500 bg-blue-50 text-xl font-extrabold text-blue-950 shadow-lg">
-                {profileImagePreview ? (
+              <div className="relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] border-orange-500 bg-blue-50 text-xl font-extrabold text-blue-950 shadow-lg">
+                {profileImagePreview && !profileImageBroken ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    className="h-full w-full object-cover"
+                    className="absolute inset-0 h-full w-full rounded-full object-cover"
                     src={profileImagePreview}
                     alt={form.name}
+                    onError={() => setProfileImageBroken(true)}
                   />
                 ) : (
                   <span>{initials(form.name)}</span>
@@ -682,13 +735,14 @@ export default function ProfilePage() {
 
               {activeStep === "image" && (
                 <div className="mx-auto grid max-w-3xl grid-cols-1 items-center gap-8 py-2 text-center sm:grid-cols-[180px_1fr] sm:text-left">
-                  <div className="relative mx-auto grid h-36 w-36 place-items-center rounded-full border-[5px] border-white bg-gradient-to-br from-blue-100 to-slate-50 text-4xl font-black text-blue-950 shadow-xl ring-4 ring-orange-500 sm:h-44 sm:w-44">
-                    {profileImagePreview ? (
+                  <div className="relative mx-auto grid aspect-square h-36 w-36 shrink-0 place-items-center overflow-hidden rounded-full border-[5px] border-white bg-gradient-to-br from-blue-100 to-slate-50 text-4xl font-black text-blue-950 shadow-xl ring-4 ring-orange-500 sm:h-44 sm:w-44">
+                    {profileImagePreview && !profileImageBroken ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        className="h-full w-full rounded-full object-cover"
+                        className="absolute inset-0 h-full w-full rounded-full object-cover"
                         src={profileImagePreview}
                         alt="Profile preview"
+                        onError={() => setProfileImageBroken(true)}
                       />
                     ) : (
                       <span>{initials(form.name)}</span>

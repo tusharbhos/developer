@@ -11,7 +11,9 @@ import {
   PublicCustomerProjectLink,
 } from "@/lib/api";
 import {
+  ApiProject,
   fetchAllProjects,
+  getProjectPresentationId,
   getProjectShowcaseVideo,
   getProjectShowcaseVideos,
   normalize,
@@ -21,7 +23,6 @@ import {
   formatDisplayDate,
   formatDisplayDateTime,
 } from "@/lib/dateTime";
-import { getPresentationIdForProject } from "@/lib/presentationIds";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   "under construction": { bg: "rgba(249,115,22,0.12)", text: "#b47a00" },
@@ -65,10 +66,6 @@ const TIME_SLOTS = Array.from({ length: 29 }, (_, i) => {
   const val = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   return { val, label: fmt12(val) };
 });
-
-function getPresentationId(projectName: string): string {
-  return getPresentationIdForProject(projectName);
-}
 
 function createGoogleCalendarUrl({
   projectName,
@@ -239,6 +236,9 @@ export default function PublicCustomerLinkPage() {
   >({});
   const [fallbackProjectVideosByTitle, setFallbackProjectVideosByTitle] =
     useState<Record<string, string[]>>({});
+  const [apiProjectsByTitle, setApiProjectsByTitle] = useState<
+    Record<string, ApiProject>
+  >({});
 
   const getAttemptKey = (project: LinkedProjectCard) => {
     if (project.project_key) return project.project_key;
@@ -362,8 +362,25 @@ export default function PublicCustomerLinkPage() {
     return Array.from(new Set(titles));
   }, [selectedProjects, fallbackProjectVideosByTitle]);
 
+  const missingPresentationProjectTitles = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedProjects
+            .filter((project) => !project.presentation_id)
+            .map((project) => normalize(project.title).toLowerCase())
+            .filter(Boolean),
+        ),
+      ).filter((titleKey) => !apiProjectsByTitle[titleKey]),
+    [selectedProjects, apiProjectsByTitle],
+  );
+
   useEffect(() => {
-    if (!missingVideoProjectIds.length && !missingVideoProjectTitles.length)
+    if (
+      !missingVideoProjectIds.length &&
+      !missingVideoProjectTitles.length &&
+      !missingPresentationProjectTitles.length
+    )
       return;
 
     let active = true;
@@ -372,6 +389,9 @@ export default function PublicCustomerLinkPage() {
         if (!active) return;
         const needed = new Set(missingVideoProjectIds);
         const neededTitles = new Set(missingVideoProjectTitles);
+        const neededPresentationTitles = new Set(
+          missingPresentationProjectTitles,
+        );
         const fetched: Record<number, string[]> = {};
         const fetchedByTitle: Record<string, string[]> = {};
 
@@ -391,6 +411,9 @@ export default function PublicCustomerLinkPage() {
           }
 
           const titleKey = normalize(project.title).toLowerCase();
+          if (titleKey && neededPresentationTitles.has(titleKey)) {
+            // Stored below in apiProjectsByTitle for presentation code lookup.
+          }
           if (titleKey && neededTitles.has(titleKey)) {
             fetchedByTitle[titleKey] = videoList;
           }
@@ -405,6 +428,14 @@ export default function PublicCustomerLinkPage() {
             ...fetchedByTitle,
           }));
         }
+        setApiProjectsByTitle((prev) => {
+          const next = { ...prev };
+          projects.forEach((project) => {
+            const titleKey = normalize(project.title).toLowerCase();
+            if (titleKey) next[titleKey] = project;
+          });
+          return next;
+        });
       })
       .catch(() => {})
       .finally(() => {
@@ -414,7 +445,11 @@ export default function PublicCustomerLinkPage() {
     return () => {
       active = false;
     };
-  }, [missingVideoProjectIds, missingVideoProjectTitles]);
+  }, [
+    missingVideoProjectIds,
+    missingVideoProjectTitles,
+    missingPresentationProjectTitles,
+  ]);
 
   const saveLikedProjects = async (
     nextLikedProjects: LinkedProjectCard[],
@@ -547,11 +582,14 @@ export default function PublicCustomerLinkPage() {
     }
 
     const projectName = scheduleProject.project.title || "";
-    const presentationId = getPresentationId(projectName);
+    const projectTitleKey = normalize(projectName).toLowerCase();
+    const presentationId =
+      scheduleProject.project.presentation_id ||
+      getProjectPresentationId(apiProjectsByTitle[projectTitleKey]);
 
     if (!presentationId) {
       setScheduleError(
-        "Presentation ID is not configured for this project. Please contact your sales person.",
+        "ConectR presentation code is not configured for this project. Please contact your sales person.",
       );
       return null;
     }

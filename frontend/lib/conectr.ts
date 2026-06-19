@@ -35,6 +35,17 @@ export type ApiShowcaseLink = {
   updated_at?: string | null;
 };
 
+export type ApiWebsiteShowcaseLink = {
+  link?: string | null;
+  presentation_id?: string | null;
+  website_showcase_link_id?: number | null;
+};
+
+export type ApiProjectMetadata = {
+  real_estate_categories?: ApiEntity[];
+  website_showcase_links?: ApiWebsiteShowcaseLink[];
+};
+
 export type ApiProject = {
   id: number;
   active?: boolean;
@@ -69,6 +80,7 @@ export type ApiProject = {
   intent?: string | null;
   possession_date?: string | null;
   available_units?: number | null;
+  metadata?: ApiProjectMetadata | null;
   categories?: ApiEntity[];
   tags?: ApiEntity[];
   amenities?: ApiEntity[];
@@ -91,6 +103,9 @@ export type MetaResponse = {
 
 export type PaginatedProjectsResponse = {
   data?: ApiProject[];
+  current_page?: number;
+  last_page?: number;
+  per_page?: number;
   next_page_url?: string | null;
   total?: number;
 };
@@ -137,6 +152,45 @@ export function toNumber(value: number | string | null | undefined): number {
 
 export function normalize(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeWebsite(value: string | null | undefined): string {
+  const raw = normalize(value).toLowerCase();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.hostname}`.replace(/\/+$/, "");
+  } catch {
+    return raw.replace(/\/+$/, "");
+  }
+}
+
+export function getConectrWebsiteUrl(): string {
+  if (process.env.NEXT_PUBLIC_CONECTR_WEBSITE_URL) {
+    return process.env.NEXT_PUBLIC_CONECTR_WEBSITE_URL;
+  }
+
+  return "https://conectr.co";
+}
+
+export function getProjectPresentationId(
+  project: ApiProject | null | undefined,
+  websiteUrl = getConectrWebsiteUrl(),
+): string {
+  const showcaseLinks = project?.metadata?.website_showcase_links ?? [];
+  const target = normalizeWebsite(websiteUrl);
+  const matched =
+    showcaseLinks.find((item) => normalizeWebsite(item.link) === target) ??
+    showcaseLinks.find((item) => normalize(item.presentation_id));
+
+  return normalize(matched?.presentation_id).toUpperCase();
+}
+
+export function getProjectRealEstateCategories(project: ApiProject): string[] {
+  return (project.metadata?.real_estate_categories ?? [])
+    .map((item) => normalize(item.name))
+    .filter(Boolean);
 }
 
 export function mediaUrl(path: string | null | undefined): string | null {
@@ -244,6 +298,29 @@ export async function fetchAllProjects(): Promise<{
   } while (url);
 
   return { projects: all, total: expectedTotal || all.length };
+}
+
+export async function fetchProjectsPage(
+  providerUrl?: string,
+  perPage = 12,
+): Promise<{
+  projects: ApiProject[];
+  nextPageUrl: string | null;
+  total: number;
+}> {
+  const url =
+    providerUrl ??
+    `https://conectr.biz/api/presentations/search?page=1&per_page=${perPage}`;
+  const data = await conectrFetch<PaginatedProjectsResponse>(
+    "/presentations/search",
+    url,
+  );
+
+  return {
+    projects: data.data ?? [],
+    nextPageUrl: data.next_page_url ?? null,
+    total: toNumber(data.total) || (data.data ?? []).length,
+  };
 }
 
 export async function fetchProjectById(

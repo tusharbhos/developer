@@ -232,6 +232,135 @@ function extractAnalyticsSummaryRecord(
   );
 }
 
+function hasAnalyticsSummary(value: unknown): boolean {
+  const summary = extractSummaryRecord(value);
+  return Boolean(summary && Object.keys(summary).length > 0);
+}
+
+function sessionFromLinkPayload(
+  link: CustomerSessionLink,
+): ConectrCustomerAnalyticsSession {
+  const analytics = isRecord(link.analytics_payload)
+    ? link.analytics_payload
+    : {};
+  const session = isRecord(analytics.session) ? analytics.session : {};
+  const events = Array.isArray(analytics.events)
+    ? (analytics.events as Array<Record<string, unknown>>)
+    : [];
+  const feedback = Array.isArray(analytics.feedback_submissions)
+    ? (analytics.feedback_submissions as Array<Record<string, unknown>>)
+    : Array.isArray(link.feedback_payload)
+      ? link.feedback_payload
+      : [];
+  const summary =
+    isRecord(link.summary_payload) && Object.keys(link.summary_payload).length > 0
+      ? link.summary_payload
+      : isRecord(analytics.summary)
+        ? analytics.summary
+        : undefined;
+
+  return {
+    ...analytics,
+    ...session,
+    session_token: link.session_token,
+    session_code: link.session_code || link.join_code,
+    presentation_id: link.presentation_id,
+    presentation_title: link.presentation_title || link.project_name,
+    presenter_name: link.presenter_name,
+    viewer_name: link.viewer_name,
+    viewer_id: link.viewer_platform_id,
+    status:
+      typeof session.status === "string"
+        ? session.status
+        : link.status || "scheduled",
+    created_at: link.created_at,
+    started_at:
+      typeof session.started_at === "string"
+        ? session.started_at
+        : link.started_at || undefined,
+    ended_at:
+      typeof session.ended_at === "string"
+        ? session.ended_at
+        : link.ended_at || undefined,
+    event_count: Number(session.event_count || link.event_count || events.length),
+    events,
+    feedback_submissions: feedback,
+    summary,
+  };
+}
+
+function isSiteVisitAnalyticsSession(
+  session: ConectrCustomerAnalyticsSession,
+): boolean {
+  const feedbackRows = session.feedback_submissions || [];
+  if (feedbackRows.length > 0) return true;
+
+  return (session.events || []).some((event) => {
+    const eventText = [
+      event.type,
+      event.event,
+      event.name,
+      event.form_name,
+      event.form_title,
+    ]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ");
+
+    return eventText.includes("site") || eventText.includes("feedback");
+  });
+}
+
+function getAnalyticsSessionStage(session: ConectrCustomerAnalyticsSession) {
+  if (isSiteVisitAnalyticsSession(session)) {
+    return {
+      key: "sitevisit",
+      label: "Site Visit",
+      bg: "rgba(34,197,94,0.16)",
+      color: "#166534",
+    };
+  }
+
+  const hasSummary =
+    hasAnalyticsSummary(session.summary) ||
+    hasAnalyticsSummary(session.ai_summary) ||
+    hasAnalyticsSummary(session.analysis) ||
+    hasAnalyticsSummary(session.analytics_summary);
+
+  if (session.started_at && !session.ended_at) {
+    return {
+      key: "live",
+      label: "Live",
+      bg: "rgba(239,68,68,0.16)",
+      color: "#b91c1c",
+    };
+  }
+
+  if (session.started_at && session.ended_at && hasSummary) {
+    return {
+      key: "completed",
+      label: "Completed",
+      bg: "rgba(107,114,128,0.18)",
+      color: "#374151",
+    };
+  }
+
+  return {
+    key: "scheduled",
+    label: "Scheduled",
+    bg: "rgba(59,130,246,0.16)",
+    color: "#1d4ed8",
+  };
+}
+
+function getRequestedStage() {
+  return {
+    key: "requested",
+    label: "Requested",
+    bg: "rgba(249,115,22,0.18)",
+    color: "#9a3412",
+  };
+}
+
 function formatDateTimeValue(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -884,7 +1013,7 @@ export default function CustomerDetailsPage() {
   const customerId = Number(params?.id);
 
   const scopedRoles = useMemo(
-    () => new Set<string>(),
+    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
     [],
   );
   const restrictProjectsForRole = Boolean(
@@ -1221,18 +1350,104 @@ export default function CustomerDetailsPage() {
     [latestLink?.liked_projects, today],
   );
   const customerAnalyticsSessions = useMemo(
-    () =>
-      [...(customerAnalytics?.sessions || [])].sort((left, right) => {
+    () => {
+      const map = new Map<string, ConectrCustomerAnalyticsSession>();
+
+      sessionLinks.forEach((link) => {
+        const session = sessionFromLinkPayload(link);
+        if (session.session_token) {
+          map.set(session.session_token, session);
+        }
+      });
+
+      (customerAnalytics?.sessions || []).forEach((session) => {
+        if (session.session_token) {
+          map.set(session.session_token, session);
+        }
+      });
+
+      return Array.from(map.values()).sort((left, right) => {
         const leftValue =
           left.ended_at || left.started_at || left.created_at || "";
         const rightValue =
           right.ended_at || right.started_at || right.created_at || "";
         return rightValue.localeCompare(leftValue);
-      }),
-    [customerAnalytics?.sessions],
+      });
+    },
+    [customerAnalytics?.sessions, sessionLinks],
   );
+  const customerJourneyRows = useMemo(() => {
+    const linkedProjectKeys = new Set(
+      sessionLinks
+        .map((link) =>
+          normalizeProjectName(
+            link.project_name || link.presentation_title || link.presentation_id,
+          ),
+        )
+        .filter(Boolean),
+    );
+
+    const sessionRows = customerAnalyticsSessions.map((session) => ({
+      key: `session-${session.session_token}`,
+      type: "session" as const,
+      projectName: String(
+        session.presentation_title || session.presentation_id || "-",
+      ),
+      viewerName: String(
+        session.viewer_name || customer?.name || customer?.nickname || "-",
+      ),
+      stage: getAnalyticsSessionStage(session),
+      events: Number(session.event_count || session.events?.length || 0),
+      feedbackRows: extractFeedbackSummaryRows(session.feedback_submissions),
+      startedAt: session.started_at || session.created_at,
+      endedAt: session.ended_at,
+      session,
+    }));
+
+    const requestedRows = meetings
+      .filter((meeting) => {
+        const projectName = normalizeProjectName(meeting.project_name);
+        return projectName !== "" && !linkedProjectKeys.has(projectName);
+      })
+      .map((meeting, index) => ({
+        key: `requested-${normalizeProjectName(meeting.project_name)}-${index}`,
+        type: "requested" as const,
+        projectName: meeting.project_name || "-",
+        viewerName: customer?.name || customer?.nickname || "-",
+        stage: getRequestedStage(),
+        events: 0,
+        feedbackRows: [],
+        startedAt: meeting.meeting_date
+          ? `${meeting.meeting_date}T${meeting.meeting_time || "00:00"}:00`
+          : "",
+        endedAt: "",
+        session: null,
+      }));
+
+    return [...sessionRows, ...requestedRows].sort((left, right) => {
+      const leftValue = left.endedAt || left.startedAt || "";
+      const rightValue = right.endedAt || right.startedAt || "";
+      return String(rightValue).localeCompare(String(leftValue));
+    });
+  }, [customer, customerAnalyticsSessions, meetings, sessionLinks]);
   const customerAnalyticsSnapshot = useMemo(() => {
     const customerData = customerAnalytics?.customer || {};
+    const derivedPresentations = Array.from(
+      new Set(
+        customerAnalyticsSessions
+          .map((session) =>
+            String(session.presentation_title || session.presentation_id || ""),
+          )
+          .filter(Boolean),
+      ),
+    );
+    const derivedDevelopers = Array.from(
+      new Set(
+        customerAnalyticsSessions
+          .map((session) => String(session.developer_id || ""))
+          .filter(Boolean),
+      ),
+    );
     const totalSessions = Number(
       customerData.total_sessions ?? customerAnalyticsSessions.length ?? 0,
     );
@@ -1259,10 +1474,10 @@ export default function CustomerDetailsPage() {
       totalEvents,
       presentationsViewed: Array.isArray(customerData.presentations_viewed)
         ? customerData.presentations_viewed.filter(Boolean)
-        : [],
+        : derivedPresentations,
       developersInteracted: Array.isArray(customerData.developers_interacted)
         ? customerData.developers_interacted.filter(Boolean)
-        : [],
+        : derivedDevelopers,
     };
   }, [customer, customerAnalytics?.customer, customerAnalyticsSessions]);
   const selectedCustomerAnalyticsSummary = useMemo(
@@ -2069,7 +2284,7 @@ export default function CustomerDetailsPage() {
                 Loading customer analytics...
               </span>
             </div>
-          ) : customerAnalytics ? (
+          ) : customerAnalytics || customerJourneyRows.length > 0 ? (
             <div className="mt-3 space-y-4">
               <div className="grid grid-cols-2 xl:grid-cols-5 gap-2">
                 {[
@@ -2320,7 +2535,7 @@ export default function CustomerDetailsPage() {
                 >
                   Session Journey Table
                 </p>
-                {customerAnalyticsSessions.length === 0 ? (
+                {customerJourneyRows.length === 0 ? (
                   <p
                     className="text-sm"
                     style={{ color: "var(--color-text-hint)" }}
@@ -2345,6 +2560,14 @@ export default function CustomerDetailsPage() {
                             }}
                           >
                             Project
+                          </th>
+                          <th
+                            style={{
+                              padding: "0.55rem 0.75rem",
+                              textAlign: "left",
+                            }}
+                          >
+                            Viewer
                           </th>
                           <th
                             style={{
@@ -2397,14 +2620,10 @@ export default function CustomerDetailsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {customerAnalyticsSessions.map((session, index) => {
-                          const feedbackRows = extractFeedbackSummaryRows(
-                            session.feedback_submissions,
-                          );
-
+                        {customerJourneyRows.map((row, index) => {
                           return (
                             <tr
-                              key={`${session.session_token}-${index}`}
+                              key={row.key}
                               style={{
                                 background:
                                   index % 2 === 0 ? "#fff" : "#f8fafc",
@@ -2418,11 +2637,7 @@ export default function CustomerDetailsPage() {
                                   color: "var(--navy-800)",
                                 }}
                               >
-                                {String(
-                                  session.presentation_title ||
-                                    session.presentation_id ||
-                                    "-",
-                                )}
+                                {row.projectName}
                               </td>
                               <td
                                 style={{
@@ -2430,7 +2645,22 @@ export default function CustomerDetailsPage() {
                                   color: "var(--color-text-secondary)",
                                 }}
                               >
-                                {String(session.status || "-")}
+                                {row.viewerName}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "0.5rem 0.75rem",
+                                }}
+                              >
+                                <span
+                                  className="inline-block px-2 py-1 rounded-full text-xs font-semibold"
+                                  style={{
+                                    background: row.stage.bg,
+                                    color: row.stage.color,
+                                  }}
+                                >
+                                  {row.stage.label}
+                                </span>
                               </td>
                               <td
                                 style={{
@@ -2438,11 +2668,7 @@ export default function CustomerDetailsPage() {
                                   color: "var(--color-text-secondary)",
                                 }}
                               >
-                                {String(
-                                  session.event_count ||
-                                    session.events?.length ||
-                                    0,
-                                )}
+                                {String(row.events)}
                               </td>
                               <td
                                 style={{
@@ -2450,7 +2676,7 @@ export default function CustomerDetailsPage() {
                                   color: "var(--color-text-secondary)",
                                 }}
                               >
-                                {String(feedbackRows.length)}
+                                {String(row.feedbackRows.length)}
                               </td>
                               <td
                                 style={{
@@ -2458,9 +2684,7 @@ export default function CustomerDetailsPage() {
                                   color: "var(--color-text-secondary)",
                                 }}
                               >
-                                {formatDateTimeValue(
-                                  session.started_at || session.created_at,
-                                )}
+                                {formatDateTimeValue(row.startedAt)}
                               </td>
                               <td
                                 style={{
@@ -2468,17 +2692,19 @@ export default function CustomerDetailsPage() {
                                   color: "var(--color-text-secondary)",
                                 }}
                               >
-                                {formatDateTimeValue(session.ended_at)}
+                                {formatDateTimeValue(row.endedAt)}
                               </td>
                               <td style={{ padding: "0.5rem 0.75rem" }}>
                                 <button
                                   className="btn btn-ghost"
+                                  disabled={!row.session}
                                   onClick={() => {
-                                    setCustomerAnalyticsSessionModal(session);
+                                    if (!row.session) return;
+                                    setCustomerAnalyticsSessionModal(row.session);
                                     setCustomerAnalyticsTab("summary");
                                   }}
                                 >
-                                  View Details
+                                  {row.session ? "View Details" : "No Link Yet"}
                                 </button>
                               </td>
                             </tr>
@@ -3184,10 +3410,10 @@ export default function CustomerDetailsPage() {
                     ),
                   },
                   {
-                    label: "Created",
+                    label: "Started",
                     value: formatDateTimeValue(
-                      analyticsModal.analytics.session?.created_at ||
-                        analyticsModal.analytics.session?.started_at ||
+                      analyticsModal.analytics.session?.started_at ||
+                        analyticsModal.analytics.session?.created_at ||
                         analyticsModal.sessionLink.created_at,
                     ),
                   },

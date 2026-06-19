@@ -70,25 +70,35 @@ class CustomerSessionLink extends Model
         'event_count',
     ];
 
+    public function getPresenterLinkAttribute($value): ?string
+    {
+        return $this->normalizeSessionUrl($value);
+    }
+
+    public function getViewerLinkAttribute($value): ?string
+    {
+        return $this->normalizeSessionUrl($value);
+    }
+
     public function getViewerLinkWithPhoneAttribute(): ?string
     {
         $value = data_get($this->raw_response, 'viewer_link_with_phone');
 
-        return is_string($value) && trim($value) !== '' ? $value : null;
+        return $this->normalizeSessionUrl($value);
     }
 
     public function getSelfViewUrlAttribute(): ?string
     {
         $value = data_get($this->raw_response, 'self_view_url');
 
-        return is_string($value) && trim($value) !== '' ? $value : null;
+        return $this->normalizeSessionUrl($value);
     }
 
     public function getSelfViewUrlWithPhoneAttribute(): ?string
     {
         $value = data_get($this->raw_response, 'self_view_url_with_phone');
 
-        return is_string($value) && trim($value) !== '' ? $value : null;
+        return $this->normalizeSessionUrl($value);
     }
 
     public function getSelfViewExpiresAtAttribute(): ?string
@@ -169,5 +179,29 @@ class CustomerSessionLink extends Model
     private function normalizeCount(mixed $value): int
     {
         return is_countable($value) ? count($value) : max(0, (int) $value);
+    }
+
+    private function normalizeSessionUrl($value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $url = trim($value);
+        if ($url === '') {
+            return null;
+        }
+
+        $configuredFrontend = (string) config('services.conectr_session.frontend_url', 'https://conectr.pro');
+        $sessionBase = preg_match('#^https?://(?:www\.)?conectr\.co/?$#i', trim($configuredFrontend))
+            ? (string) config('services.conectr_session.base_url', 'https://conectr.pro')
+            : $configuredFrontend;
+        $sessionBase = rtrim($sessionBase, '/');
+
+        return preg_replace(
+            '#^https?://(?:www\.)?conectr\.co(?=/|$)#i',
+            $sessionBase,
+            $url,
+        ) ?: $url;
     }
 }

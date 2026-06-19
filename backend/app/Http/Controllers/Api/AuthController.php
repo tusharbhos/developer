@@ -392,6 +392,14 @@ class AuthController extends Controller
         /** @var FilesystemAdapter $publicDisk */
         $publicDisk = Storage::disk('public');
 
+        $profileImageUrl = null;
+        if ($user->profile_image) {
+            $profileImageUrl = $publicDisk->url($user->profile_image);
+            if (is_string($profileImageUrl) && str_starts_with($profileImageUrl, '/')) {
+                $profileImageUrl = rtrim((string) config('app.url'), '/') . $profileImageUrl;
+            }
+        }
+
         return [
             'id'             => $user->id,
             'name'           => $user->name,
@@ -401,7 +409,7 @@ class AuthController extends Controller
             'gst_no'         => $user->gst_no,
             'company_size'   => $user->company_size,
             'profile_image'  => $user->profile_image,
-            'profile_image_url' => $user->profile_image ? $publicDisk->url($user->profile_image) : null,
+            'profile_image_url' => $profileImageUrl,
             'rera_no'        => $user->rera_no,
             'company_id'     => $user->company_id,
             'is_company_owner' => (bool) $user->is_company_owner,

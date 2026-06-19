@@ -6,6 +6,7 @@ import { DEFAULT_FILTERS, FilterState } from "@/lib/mockData";
 export interface SidebarOptions {
   projects: string[];
   categories: string[];
+  realEstateCategories: string[];
   tags: string[];
   amenities: string[];
   developers: string[];
@@ -356,10 +357,15 @@ export default function SidebarFilter({
   options,
 }: SidebarFilterProps) {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [draftFilters, setDraftFilters] = useState<FilterState>(filters);
 
   useEffect(() => {
     if (!isOpen) setActiveDropdown(null);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) setDraftFilters(filters);
+  }, [filters, isOpen]);
 
   const projectOptions = useMemo(
     () => uniqueSanitized(options.projects),
@@ -368,6 +374,10 @@ export default function SidebarFilter({
   const categoryOptions = useMemo(
     () => uniqueSanitized(options.categories),
     [options.categories],
+  );
+  const realEstateCategoryOptions = useMemo(
+    () => uniqueSanitized(options.realEstateCategories),
+    [options.realEstateCategories],
   );
   const tagOptions = useMemo(
     () => uniqueSanitized(options.tags),
@@ -394,11 +404,10 @@ export default function SidebarFilter({
     key: K,
     value: FilterState[K],
   ) => {
-    onFiltersChange({ ...filters, [key]: value });
+    setDraftFilters((current) => ({ ...current, [key]: value }));
   };
 
-  const resetAll = () =>
-    onFiltersChange({
+  const resetFilters = (): FilterState => ({
       ...DEFAULT_FILTERS,
       areaMin: options.areaRange.min,
       areaMax: options.areaRange.max,
@@ -406,18 +415,28 @@ export default function SidebarFilter({
       priceMax: options.priceRange.max,
     });
 
+  const resetAll = () => {
+    setDraftFilters(resetFilters());
+  };
+
+  const applyFilters = () => {
+    onFiltersChange(draftFilters);
+    onClose();
+  };
+
   const activeCount = [
-    filters.projectName.length,
-    filters.categories.length,
-    filters.tags.length,
-    filters.developer.length,
-    filters.location.length,
-    filters.amenities.length,
-    filters.unitTypes.length,
-    filters.developmentStatus ? 1 : 0,
-    filters.bestSuited ? 1 : 0,
-    filters.possessionWithinYears ? 1 : 0,
-    filters.unitsAvailable ? 1 : 0,
+    draftFilters.projectName.length,
+    draftFilters.categories.length,
+    draftFilters.realEstateCategories.length,
+    draftFilters.tags.length,
+    draftFilters.developer.length,
+    draftFilters.location.length,
+    draftFilters.amenities.length,
+    draftFilters.unitTypes.length,
+    draftFilters.developmentStatus ? 1 : 0,
+    draftFilters.bestSuited ? 1 : 0,
+    draftFilters.possessionWithinYears ? 1 : 0,
+    draftFilters.unitsAvailable ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
   const possessionOptions = [
     { label: "Any time", value: 0 },
@@ -508,7 +527,7 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Location"
             options={locationOptions}
-            selected={filters.location}
+            selected={draftFilters.location}
             onChange={(value) => update("location", value)}
           />
 
@@ -518,8 +537,18 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Project Name"
             options={projectOptions}
-            selected={filters.projectName}
+            selected={draftFilters.projectName}
             onChange={(value) => update("projectName", value)}
+          />
+
+          <SearchableMultiDropdown
+            dropdownKey="realEstateCategories"
+            activeDropdown={activeDropdown}
+            setActiveDropdown={setActiveDropdown}
+            label="Real Estate Category"
+            options={realEstateCategoryOptions}
+            selected={draftFilters.realEstateCategories}
+            onChange={(value) => update("realEstateCategories", value)}
           />
 
           <SearchableMultiDropdown
@@ -528,7 +557,7 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Intent/Category"
             options={categoryOptions}
-            selected={filters.categories}
+            selected={draftFilters.categories}
             onChange={(value) => update("categories", value)}
           />
 
@@ -538,7 +567,7 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Amenities"
             options={amenityOptions}
-            selected={filters.amenities}
+            selected={draftFilters.amenities}
             onChange={(value) => update("amenities", value)}
           />
 
@@ -548,7 +577,7 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Unit Type"
             options={unitTypeOptions}
-            selected={filters.unitTypes}
+            selected={draftFilters.unitTypes}
             onChange={(value) => update("unitTypes", value)}
           />
 
@@ -558,7 +587,7 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Tags"
             options={tagOptions}
-            selected={filters.tags}
+            selected={draftFilters.tags}
             onChange={(value) => update("tags", value)}
           />
 
@@ -568,21 +597,21 @@ export default function SidebarFilter({
             setActiveDropdown={setActiveDropdown}
             label="Developer"
             options={developerOptions}
-            selected={filters.developer}
+            selected={draftFilters.developer}
             onChange={(value) => update("developer", value)}
           />
 
           <ChipRadioGroup
             label="Development Status"
             options={options.developmentStatus}
-            value={filters.developmentStatus}
+            value={draftFilters.developmentStatus}
             onChange={(value) => update("developmentStatus", value)}
           />
 
           <ChipRadioGroup
             label="Best Suited"
             options={options.bestSuited}
-            value={filters.bestSuited}
+            value={draftFilters.bestSuited}
             onChange={(value) => update("bestSuited", value)}
           />
 
@@ -590,7 +619,7 @@ export default function SidebarFilter({
             <label className="label">Possession Within</label>
             <select
               className="input-field"
-              value={filters.possessionWithinYears}
+              value={draftFilters.possessionWithinYears}
               onChange={(e) =>
                 update("possessionWithinYears", Number(e.target.value))
               }
@@ -610,7 +639,7 @@ export default function SidebarFilter({
                 className="text-xs font-semibold"
                 style={{ color: "var(--color-secondary)" }}
               >
-                {filters.areaMin} sq.ft
+                {draftFilters.areaMin} sq.ft
               </span>
             </div>
 
@@ -618,8 +647,8 @@ export default function SidebarFilter({
               type="range"
               className="w-full"
               min={options.areaRange.min}
-              max={filters.areaMax}
-              value={filters.areaMin}
+              max={draftFilters.areaMax}
+              value={draftFilters.areaMin}
               onChange={(e) => update("areaMin", Number(e.target.value))}
             />
           </div>
@@ -631,16 +660,16 @@ export default function SidebarFilter({
                 className="text-xs font-semibold"
                 style={{ color: "var(--color-secondary)" }}
               >
-                {filters.areaMax} sq.ft
+                {draftFilters.areaMax} sq.ft
               </span>
             </div>
 
             <input
               type="range"
               className="w-full"
-              min={filters.areaMin}
+              min={draftFilters.areaMin}
               max={options.areaRange.max}
-              value={filters.areaMax}
+              value={draftFilters.areaMax}
               onChange={(e) => update("areaMax", Number(e.target.value))}
             />
           </div>
@@ -652,15 +681,15 @@ export default function SidebarFilter({
                 className="text-xs font-semibold"
                 style={{ color: "var(--color-secondary)" }}
               >
-                {formatPrice(filters.priceMin)}
+                {formatPrice(draftFilters.priceMin)}
               </span>
             </div>
             <input
               type="range"
               className="w-full"
               min={options.priceRange.min}
-              max={filters.priceMax}
-              value={filters.priceMin}
+              max={draftFilters.priceMax}
+              value={draftFilters.priceMin}
               onChange={(e) => update("priceMin", Number(e.target.value))}
             />
           </div>
@@ -672,15 +701,15 @@ export default function SidebarFilter({
                 className="text-xs font-semibold"
                 style={{ color: "var(--color-secondary)" }}
               >
-                {formatPrice(filters.priceMax)}
+                {formatPrice(draftFilters.priceMax)}
               </span>
             </div>
             <input
               type="range"
               className="w-full"
-              min={filters.priceMin}
+              min={draftFilters.priceMin}
               max={options.priceRange.max}
-              value={filters.priceMax}
+              value={draftFilters.priceMax}
               onChange={(e) => update("priceMax", Number(e.target.value))}
             />
           </div>
@@ -716,7 +745,7 @@ export default function SidebarFilter({
             Reset
           </button>
           <button
-            onClick={onClose}
+            onClick={applyFilters}
             className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-black btn-primary"
           >
             Apply Filters

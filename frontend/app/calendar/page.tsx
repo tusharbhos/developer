@@ -13,7 +13,12 @@ import {
   CustomerSessionLinkAPI,
   ProjectMeeting,
 } from "@/lib/api";
-import { fetchAllProjects, ApiProject, normalize } from "@/lib/conectr";
+import {
+  fetchAllProjects,
+  ApiProject,
+  getProjectPresentationId,
+  normalize,
+} from "@/lib/conectr";
 import AddCustomerModal from "@/components/AddCustomerModal";
 import MeetingModal, { MeetingEntry } from "@/components/MeetingModal";
 import PreSiteVisitModal from "@/components/PreSiteVisitModal";
@@ -112,10 +117,16 @@ type ConectrAnalyticsResponse = {
     ended_at?: string;
     joinees?: number;
     event_count?: number;
+    summary?: Record<string, unknown>;
     feedback_submissions?: Array<Record<string, unknown>>;
   };
   events?: Array<Record<string, unknown>>;
   feedback_submissions?: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
+  summary_payload?: Record<string, unknown>;
+  ai_summary?: Record<string, unknown>;
+  analysis?: Record<string, unknown>;
+  analytics_summary?: Record<string, unknown>;
 };
 
 type SessionEvidence = {
@@ -124,6 +135,7 @@ type SessionEvidence = {
   endedAt?: string | null;
   joinees?: number;
   eventCount?: number;
+  hasAnalysis?: boolean;
 };
 
 type AnalyticsEntryResult = {
@@ -360,6 +372,21 @@ function getFeedbackSourceRecords(analytics: ConectrAnalyticsResponse) {
   ];
 }
 
+function hasAnalysisPayload(value: unknown): boolean {
+  return Boolean(value && isRecord(value) && Object.keys(value).length > 0);
+}
+
+function analyticsHasSummary(analytics: ConectrAnalyticsResponse): boolean {
+  return (
+    hasAnalysisPayload(analytics.summary) ||
+    hasAnalysisPayload(analytics.summary_payload) ||
+    hasAnalysisPayload(analytics.ai_summary) ||
+    hasAnalysisPayload(analytics.analysis) ||
+    hasAnalysisPayload(analytics.analytics_summary) ||
+    hasAnalysisPayload(analytics.session?.summary)
+  );
+}
+
 function buildCalendarCustomer(
   sessionLink: CalendarSessionLink,
   fallbackCustomer?: Customer,
@@ -434,27 +461,6 @@ function extractSiteVisitEntries(
       eventRecord,
       dataRecord,
     );
-
-    const normalizedEventType = (eventType || "").toLowerCase();
-    const normalizedFormName = formName.toLowerCase();
-    const isLikelySiteVisitEvent =
-      normalizedEventType === "feedback_submitted" ||
-      normalizedEventType.includes("site") ||
-      normalizedEventType.includes("form") ||
-      normalizedFormName.includes("site visit") ||
-      Boolean(preferredSiteVisitValue);
-
-    if (!isLikelySiteVisitEvent || !preferredSiteVisitValue) {
-      return [];
-    }
-
-    const preferredSiteVisit = parsePreferredSiteVisitDateTime(
-      preferredSiteVisitValue,
-    );
-    if (!preferredSiteVisit) {
-      return [];
-    }
-
     const submittedAt = firstString(
       eventRecord.created_at,
       eventRecord.submitted_at,
@@ -463,6 +469,30 @@ function extractSiteVisitEntries(
       dataRecord?.submitted_at,
       dataRecord?.timestamp,
     );
+
+    const normalizedEventType = (eventType || "").toLowerCase();
+    const normalizedFormName = formName.toLowerCase();
+    const isLikelySiteVisitEvent =
+      normalizedEventType === "feedback_submitted" ||
+      normalizedEventType === "site_visit_booked" ||
+      normalizedEventType === "site_visit_declined" ||
+      normalizedEventType.includes("site") ||
+      normalizedEventType.includes("form") ||
+      normalizedFormName.includes("site visit") ||
+      Boolean(preferredSiteVisitValue);
+
+    if (!isLikelySiteVisitEvent) {
+      return [];
+    }
+
+    const preferredSiteVisit = preferredSiteVisitValue
+      ? parsePreferredSiteVisitDateTime(preferredSiteVisitValue)
+      : submittedAt
+        ? parsePreferredSiteVisitDateTime(submittedAt)
+        : null;
+    if (!preferredSiteVisit) {
+      return [];
+    }
 
     return [
       {
@@ -481,7 +511,7 @@ function extractSiteVisitEntries(
         siteVisitFeedback: {
           formName,
           submittedAt,
-          preferredDateTime: preferredSiteVisitValue,
+          preferredDateTime: preferredSiteVisitValue || submittedAt || "",
           answers,
           sessionLinkId: sessionLink.id,
           sessionToken: sessionLink.session_token || source,
@@ -581,22 +611,32 @@ function getEntryStatusLabel(entry: CalendarEntry) {
 
 function getCalendarEntryTimedStatus(entry: CalendarEntry): TimedMeetingStatus {
   const evidence = entry.sessionEvidence;
+  const startedAt = evidence?.startedAt ?? entry.latestSessionStartedAt;
+  const endedAt = evidence?.endedAt ?? entry.latestSessionEndedAt;
+  const hasSession =
+    Boolean(entry.hasSessionLink) || (entry.sessionLinkCount || 0) > 0;
+  const hasActivity = hasViewerActivity({
+    joinees: evidence?.joinees ?? entry.latestSessionJoinees,
+    eventCount: evidence?.eventCount ?? entry.latestSessionEventCount,
+  });
+
+  if (startedAt && !endedAt) return "live";
+  if (endedAt) {
+    return evidence?.hasAnalysis && hasActivity ? "completed" : "scheduled";
+  }
+
   return getTimedMeetingStatus({
     meetingDate: entry.meeting_date,
     meetingTime: entry.meeting_time,
-    hasSession:
-      Boolean(entry.hasSessionLink) || (entry.sessionLinkCount || 0) > 0,
-    hasViewerActivity: hasViewerActivity({
-      joinees: evidence?.joinees ?? entry.latestSessionJoinees,
-      eventCount: evidence?.eventCount ?? entry.latestSessionEventCount,
-    }),
+    hasSession,
+    hasViewerActivity: hasActivity,
     completedEvidence: hasCompletedSessionEvidence({
       status: evidence?.status ?? entry.latestSessionStatus,
-      startedAt: evidence?.startedAt ?? entry.latestSessionStartedAt,
-      endedAt: evidence?.endedAt ?? entry.latestSessionEndedAt,
+      startedAt,
+      endedAt,
       joinees: evidence?.joinees ?? entry.latestSessionJoinees,
       eventCount: evidence?.eventCount ?? entry.latestSessionEventCount,
-    }),
+    }) && Boolean(evidence?.hasAnalysis),
   });
 }
 
@@ -1058,23 +1098,16 @@ function AddMeetingModal({
   );
 
   const filteredProjects = useMemo(() => {
+    const projectsWithConectrCode = apiProjects.filter((project) =>
+      getProjectPresentationId(project),
+    );
     if (!restrictToAllowedProjects) {
-      return apiProjects;
+      return projectsWithConectrCode;
     }
-    return apiProjects.filter((p) => allowedProjectSet.has(normalize(p.title)));
+    return projectsWithConectrCode.filter((p) =>
+      allowedProjectSet.has(normalize(p.title)),
+    );
   }, [apiProjects, allowedProjectSet, restrictToAllowedProjects]);
-
-  const projectOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          filteredProjects
-            .map((project) => project.title?.trim() || "")
-            .filter(Boolean),
-        ),
-      ),
-    [filteredProjects],
-  );
 
   useEffect(() => {
     fetchAllProjects()
@@ -1087,7 +1120,7 @@ function AddMeetingModal({
       isOpen
       onClose={onClose}
       initialDate={date}
-      projectOptions={projectOptions}
+      projectOptions={filteredProjects}
       loadingProjectOptions={loadingP}
       onScheduled={onAdded}
     />
@@ -1104,7 +1137,7 @@ export default function CalendarPage() {
   const todayStr = today.toISOString().split("T")[0];
 
   const restrictRoles = useMemo(
-    () => new Set<string>(),
+    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
     [],
   );
   const restrictToAllowedProjects = Boolean(
@@ -1271,6 +1304,9 @@ export default function CalendarPage() {
               feedbackCount,
               Number(sessionLink.event_count ?? 0),
             ),
+            hasAnalysis:
+              analyticsHasSummary(analytics) ||
+              hasAnalysisPayload(sessionLink.summary_payload),
           };
 
           return {

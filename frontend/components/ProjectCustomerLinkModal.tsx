@@ -2,7 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import AddCustomerModal from "@/components/AddCustomerModal";
-import { ApiProject, mediaUrl, normalize, toCardPrice } from "@/lib/conectr";
+import {
+  ApiProject,
+  getProjectPresentationId,
+  getProjectRealEstateCategories,
+  mediaUrl,
+  normalize,
+  toCardPrice,
+} from "@/lib/conectr";
 import {
   Customer,
   CustomerAPI,
@@ -26,6 +33,7 @@ function mapProjectCard(project: ApiProject): LinkedProjectCard {
   return {
     id: project.id,
     title: normalize(project.title) || "Untitled Project",
+    presentation_id: getProjectPresentationId(project),
     developer: normalize(project.developer) || "",
     location: normalize(project.location) || "",
     price: toCardPrice(project),
@@ -34,6 +42,7 @@ function mapProjectCard(project: ApiProject): LinkedProjectCard {
       mediaUrl(project.background_image_desktop) ||
       mediaUrl(project.main_logo) ||
       "",
+    real_estate_categories: getProjectRealEstateCategories(project),
   };
 }
 

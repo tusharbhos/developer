@@ -52,26 +52,69 @@ interface ApiError {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+const AUTH_USER_CACHE_KEY = "cp_user";
+
+function readCachedUser(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(AUTH_USER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    localStorage.removeItem(AUTH_USER_CACHE_KEY);
+    return null;
+  }
+}
+
+function cacheUser(user: User | null): void {
+  if (typeof window === "undefined") return;
+  if (user) {
+    localStorage.setItem(AUTH_USER_CACHE_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(AUTH_USER_CACHE_KEY);
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [hasSession, setHasSession] = useState(false);
   // Start true so we don't flash redirect before token check
   const [isLoading, setIsLoading] = useState(true);
 
   const loadUser = useCallback(async () => {
     const token = getToken();
     if (!token) {
+      setHasSession(false);
+      cacheUser(null);
       setIsLoading(false);
       return;
     }
+    setHasSession(true);
+
+    const cachedUser = readCachedUser();
+    if (cachedUser) {
+      setUser(cachedUser);
+      setIsLoading(false);
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
     try {
-      const response = await AuthAPI.me();
-      setUser(response.user as unknown as User);
-    } catch {
+      const response = await AuthAPI.me(controller.signal);
+      const freshUser = response.user as unknown as User;
+      setUser(freshUser);
+      cacheUser(freshUser);
+    } catch (error: unknown) {
       // Token invalid / expired — clear silently
-      removeToken();
-      setUser(null);
+      const status = (error as ApiError)?.status;
+      if (status === 401 || status === 403) {
+        removeToken();
+        setHasSession(false);
+        cacheUser(null);
+        setUser(null);
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setIsLoading(false);
     }
   }, []);
@@ -85,7 +128,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       const response = await AuthAPI.me();
-      setUser(response.user as unknown as User);
+      const freshUser = response.user as unknown as User;
+      setUser(freshUser);
+      cacheUser(freshUser);
     } catch {
       // ignore
     }
@@ -120,8 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setToken(response.token);
+      setHasSession(true);
 
-      setUser(response.user as unknown as User);
+      const loggedInUser = response.user as unknown as User;
+      setUser(loggedInUser);
+      cacheUser(loggedInUser);
       return { success: true };
     } catch (error: unknown) {
       const e = error as ApiError;
@@ -138,9 +186,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await AuthAPI.register(data);
       if (response.token) {
         setToken(response.token);
-        setUser(response.user as unknown as User);
+        setHasSession(true);
+        const registeredUser = response.user as unknown as User;
+        setUser(registeredUser);
+        cacheUser(registeredUser);
       } else {
         removeToken();
+        setHasSession(false);
+        cacheUser(null);
         setUser(null);
       }
       return { success: true };
@@ -171,6 +224,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ignore
     } finally {
       removeToken();
+      setHasSession(false);
+      cacheUser(null);
       setUser(null);
     }
   };
@@ -182,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
-        isAuthenticated: !!user,
+        isAuthenticated: Boolean(user) || hasSession,
         isLoading,
         refreshUser,
       }}

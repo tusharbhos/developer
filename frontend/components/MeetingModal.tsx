@@ -110,7 +110,11 @@ export default function MeetingModal({
 }) {
   const { customer } = entry;
   const { user } = useAuth();
-  const restrictedRoles = new Set<string>([]);
+  const restrictedRoles = new Set([
+    "developer_super_admin",
+    "sourcing_admin",
+    "sales_user",
+  ]);
   const isRestrictedRole = Boolean(
     user?.role && restrictedRoles.has(user.role),
   );
