@@ -257,6 +257,7 @@ export interface Customer {
 export interface LinkedProjectCard {
   id?: number;
   title: string;
+  presentation_id?: string;
   developer?: string;
   location?: string;
   price?: string;
@@ -274,6 +275,7 @@ export interface LinkedProjectCard {
   attempt_count?: number;
   attempts_left?: number;
   is_locked?: boolean;
+  real_estate_categories?: string[];
 }
 
 export interface CustomerProjectLink {
@@ -1101,7 +1103,13 @@ export const CustomerSessionLinkAPI = {
       `/public/customer-project-links/${token}/self-view-session`,
       {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          frontend_url:
+            payload.frontend_url ||
+            process.env.NEXT_PUBLIC_CONECTR_SESSION_FRONTEND_URL ||
+            process.env.NEXT_PUBLIC_CONECTR_SESSION_BASE_URL,
+        }),
       },
     ),
 

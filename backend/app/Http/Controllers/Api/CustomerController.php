@@ -428,7 +428,7 @@ class CustomerController extends Controller
 
     private function isCalendarProjectScopedRole($user): bool
     {
-        return false;
+        return in_array($user->role, ['developer_super_admin', 'sourcing_admin', 'sales_user'], true);
     }
 
     private function allowedProjectMap($user): array
@@ -470,7 +470,18 @@ class CustomerController extends Controller
         }
 
         $rows = CustomerSessionLink::query()
-            ->select('id', 'customer_id', 'project_name', 'created_at', 'raw_response')
+            ->select(
+                'id',
+                'customer_id',
+                'project_name',
+                'created_at',
+                'provider_status',
+                'started_at',
+                'ended_at',
+                'joinees',
+                'event_count',
+                'raw_response',
+            )
             ->whereIn('customer_id', $customerIds)
             ->orderByDesc('created_at')
             ->get();

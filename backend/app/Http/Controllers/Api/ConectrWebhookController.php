@@ -21,6 +21,8 @@ class ConectrWebhookController extends Controller
         'self_view_summary_ready',
         'phone_joinee_joined',
         'phone_self_view_started',
+        'site_visit_booked',
+        'site_visit_declined',
     ];
 
     public function handle(Request $request): JsonResponse
@@ -78,6 +80,11 @@ class ConectrWebhookController extends Controller
             abort(503, 'ConectR webhook secret is not configured.');
         }
 
+        $signature = trim((string) $request->header('X-ConectR-Signature', ''));
+        if ($signature !== '' && $this->signatureMatches($request->getContent(), $signature, $expected)) {
+            return;
+        }
+
         $provided = trim((string) (
             $request->query('key')
             ?: $request->header('X-ConectR-Webhook-Secret', '')
@@ -86,6 +93,18 @@ class ConectrWebhookController extends Controller
         if ($provided === '' || ! hash_equals($expected, $provided)) {
             abort(401, 'Invalid webhook secret.');
         }
+    }
+
+    private function signatureMatches(string $rawBody, string $signature, string $secret): bool
+    {
+        $provided = preg_replace('/^sha256=/i', '', trim($signature));
+        if (! is_string($provided) || ! preg_match('/^[a-f0-9]{64}$/i', $provided)) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $rawBody, $secret);
+
+        return hash_equals(strtolower($expected), strtolower($provided));
     }
 
     private function enrichSummaryPayload(string $event, string $sessionToken, array $payload): array
@@ -138,18 +157,25 @@ class ConectrWebhookController extends Controller
             ?? $payload['presentation_code']
             ?? ''
         ));
+        $selfViewId = trim((string) ($payload['self_view_id'] ?? ''));
         $projectName = trim((string) (
             $payload['project_name']
             ?? $payload['presentation_title']
             ?? ''
         ));
 
-        if ($viewerId === '' && $presentationId === '' && $projectName === '') {
+        if ($viewerId === '' && $presentationId === '' && $projectName === '' && $selfViewId === '') {
             return null;
         }
 
         return CustomerSessionLink::query()
             ->when($viewerId !== '', fn($query) => $query->where('viewer_platform_id', $viewerId))
+            ->when($selfViewId !== '', function ($query) use ($selfViewId) {
+                $query->where(function ($scope) use ($selfViewId) {
+                    $scope->where('raw_response->self_view_id', $selfViewId)
+                        ->orWhere('raw_response->id', $selfViewId);
+                });
+            })
             ->when(
                 $presentationId !== '' || $projectName !== '',
                 function ($query) use ($presentationId, $projectName) {
@@ -178,6 +204,22 @@ class ConectrWebhookController extends Controller
             ?? data_get($payload, 'session.feedback_submissions')
             ?? data_get($payload, 'analytics.feedback_submissions');
         $events = $payload['events'] ?? data_get($payload, 'analytics.events');
+        if (in_array($event, ['site_visit_booked', 'site_visit_declined'], true) && ! is_array($feedback)) {
+            $feedback = [$payload];
+        }
+        if (in_array($event, ['site_visit_booked', 'site_visit_declined'], true) && ! is_array($events)) {
+            $events = [[
+                'type' => $event,
+                'event' => $event,
+                'data' => $payload,
+                'created_at' => $payload['timestamp'] ?? now()->toIso8601String(),
+            ]];
+        }
+        $participants = $this->extractParticipants($event, $payload);
+        $mergedParticipants = $this->mergeRecords(
+            is_array(data_get($currentAnalytics, 'participants')) ? data_get($currentAnalytics, 'participants') : [],
+            $participants,
+        );
         $mergedEvents = $this->mergeRecords(
             is_array(data_get($currentAnalytics, 'events')) ? data_get($currentAnalytics, 'events') : [],
             is_array($events) ? $events : [],
@@ -240,6 +282,9 @@ class ConectrWebhookController extends Controller
 
         $analyticsPayload['events'] = $mergedEvents;
         $analyticsPayload['feedback_submissions'] = $mergedFeedback;
+        if ($mergedParticipants !== []) {
+            $analyticsPayload['participants'] = $mergedParticipants;
+        }
         if (is_array($summary)) {
             $analyticsPayload['summary'] = $summary;
             $analyticsPayload['summary_history'] = $this->mergeRecords(
@@ -273,6 +318,7 @@ class ConectrWebhookController extends Controller
                 'joinees' => $joinees,
                 'event_count' => $eventCount,
                 'last_webhook_event' => $event,
+                'last_webhook_payload' => $payload,
             ]),
         ])->save();
 
@@ -309,6 +355,30 @@ class ConectrWebhookController extends Controller
     private function normalizeCount(mixed $value): int
     {
         return is_countable($value) ? count($value) : max(0, (int) $value);
+    }
+
+    private function extractParticipants(string $event, array $payload): array
+    {
+        $records = [];
+
+        foreach (['participants', 'joinees'] as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_array($value)) {
+                $records = array_merge($records, array_is_list($value) ? $value : [$value]);
+            }
+        }
+
+        $joinee = data_get($payload, 'joinee');
+        if (is_array($joinee)) {
+            $records[] = array_replace($joinee, [
+                'source_event' => $event,
+                'session_token' => $payload['session_token'] ?? null,
+                'self_view_id' => $payload['self_view_id'] ?? null,
+                'visit_id' => $payload['visit_id'] ?? null,
+            ]);
+        }
+
+        return array_values(array_filter($records, fn($record) => is_array($record) && $record !== []));
     }
 
     private function mergeRecords(array $existing, array $incoming): array

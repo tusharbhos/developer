@@ -121,7 +121,7 @@ class CustomerSessionLinkController extends Controller
         }
 
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $frontendUrl = (string) ($v['frontend_url'] ?? config('services.conectr_session.frontend_url', $baseUrl));
+        $frontendUrl = $this->sessionFrontendUrl($v['frontend_url'] ?? null);
         $viewerId = trim((string) ($v['viewer_id'] ?? ''));
         if ($viewerId === '') {
             $viewerId = 'CUST-' . $customer->id;
@@ -176,7 +176,7 @@ class CustomerSessionLinkController extends Controller
             ], $status);
         }
 
-        $body = $extRes->json();
+        $body = $this->normalizeSessionResponseLinks($extRes->json());
         if (!is_array($body)) {
             return response()->json([
                 'message' => 'Invalid ConectR response.',
@@ -363,7 +363,7 @@ class CustomerSessionLinkController extends Controller
         }
 
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $frontendUrl = (string) ($v['frontend_url'] ?? config('services.conectr_session.frontend_url', $baseUrl));
+        $frontendUrl = $this->sessionFrontendUrl($v['frontend_url'] ?? null);
         $viewerId = trim((string) ($v['viewer_id'] ?? ''));
         if ($viewerId === '') {
             $viewerId = 'CUST-' . $customer->id;
@@ -423,7 +423,7 @@ class CustomerSessionLinkController extends Controller
             ], $status);
         }
 
-        $body = $extRes->json();
+        $body = $this->normalizeSessionResponseLinks($extRes->json());
         if (! is_array($body) || empty($body['self_view_url'])) {
             return response()->json([
                 'message' => 'Invalid self-view response. Expected self_view_url.',
@@ -802,8 +802,13 @@ class CustomerSessionLinkController extends Controller
     {
         $url = trim((string) config('services.conectr_session.webhook_url'));
         $secret = trim((string) config('services.conectr_session.webhook_secret'));
-        if ($url === '' || $secret === '') {
+        if ($url === '') {
             return null;
+        }
+
+        $transport = trim((string) config('services.conectr_session.webhook_secret_transport', 'signature'));
+        if ($transport !== 'query' || $secret === '') {
+            return $url;
         }
 
         $separator = str_contains($url, '?') ? '&' : '?';
@@ -875,7 +880,7 @@ class CustomerSessionLinkController extends Controller
     {
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
         $apiKey = trim((string) config('services.conectr_session.api_key'));
-        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
+        $frontendUrl = $this->sessionFrontendUrl();
         $token = trim((string) $row->session_token);
 
         if ($apiKey === '') {
@@ -925,7 +930,7 @@ class CustomerSessionLinkController extends Controller
         }
 
         $baseUrl = rtrim((string) config('services.conectr_session.base_url'), '/');
-        $frontendUrl = (string) config('services.conectr_session.frontend_url', $baseUrl);
+        $frontendUrl = $this->sessionFrontendUrl();
 
         try {
             $http = Http::acceptJson()
@@ -998,6 +1003,58 @@ class CustomerSessionLinkController extends Controller
         }
 
         return [$lastResponse, $lastPath, $paths];
+    }
+
+    private function sessionFrontendUrl(?string $requestedUrl = null): string
+    {
+        $configuredUrl = trim((string) config('services.conectr_session.frontend_url', 'https://conectr.pro'));
+        if (preg_match('#^https?://(?:www\.)?conectr\.co/?$#i', $configuredUrl)) {
+            $configuredUrl = trim((string) config('services.conectr_session.base_url', 'https://conectr.pro'));
+        }
+        $url = trim((string) ($requestedUrl ?: $configuredUrl ?: 'https://conectr.pro'));
+
+        return rtrim($this->normalizeSessionUrl($url) ?: 'https://conectr.pro', '/');
+    }
+
+    private function normalizeSessionResponseLinks($body): array
+    {
+        if (! is_array($body)) {
+            return [];
+        }
+
+        foreach ([
+            'presenter_link',
+            'viewer_link',
+            'viewer_link_with_phone',
+            'self_view_url',
+            'self_view_url_with_phone',
+        ] as $key) {
+            if (isset($body[$key]) && is_string($body[$key])) {
+                $body[$key] = $this->normalizeSessionUrl($body[$key]);
+            }
+        }
+
+        return $body;
+    }
+
+    private function normalizeSessionUrl(?string $url): ?string
+    {
+        $clean = trim((string) $url);
+        if ($clean === '') {
+            return null;
+        }
+
+        $configuredFrontend = trim((string) config('services.conectr_session.frontend_url', 'https://conectr.pro'));
+        $sessionBase = preg_match('#^https?://(?:www\.)?conectr\.co/?$#i', $configuredFrontend)
+            ? (string) config('services.conectr_session.base_url', 'https://conectr.pro')
+            : $configuredFrontend;
+        $sessionBase = rtrim($sessionBase, '/');
+
+        return preg_replace(
+            '#^https?://(?:www\.)?conectr\.co(?=/|$)#i',
+            $sessionBase,
+            $clean,
+        ) ?: $clean;
     }
 
     private function normalizeProjectName(string $value): string
@@ -1131,7 +1188,7 @@ class CustomerSessionLinkController extends Controller
 
     private function isCalendarProjectScopedRole($user): bool
     {
-        return false;
+        return in_array($user->role, ['developer_super_admin', 'sourcing_admin', 'sales_user'], true);
     }
 
     private function allowedProjectMap($user): array

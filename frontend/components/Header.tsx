@@ -7,9 +7,40 @@ import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { getApiBaseUrl } from "@/lib/api";
 
 interface HeaderProps {
   variant?: "landing" | "app" | "auth";
+}
+
+function resolveProfileImageUrl(value?: string | null): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+
+  const apiBase = getApiBaseUrl().replace(/\/api\/?$/, "");
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (
+        /^(localhost|127\.0\.0\.1)$/i.test(url.hostname) &&
+        url.pathname.startsWith("/storage/")
+      ) {
+        return `${apiBase}${url.pathname}${url.search}`;
+      }
+    } catch {
+      return raw;
+    }
+    return raw;
+  }
+
+  const path = raw.startsWith("/")
+    ? raw
+    : raw.startsWith("storage/")
+      ? `/${raw}`
+      : `/storage/${raw}`;
+  return `${apiBase}${path}`;
 }
 
 export default function Header({ variant = "landing" }: HeaderProps) {
@@ -20,7 +51,11 @@ export default function Header({ variant = "landing" }: HeaderProps) {
   const [dropOpen, setDropOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [profileImageBroken, setProfileImageBroken] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
+  const profileImageUrl = resolveProfileImageUrl(
+    user?.profile_image_url || user?.profile_image,
+  );
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -37,6 +72,10 @@ export default function Header({ variant = "landing" }: HeaderProps) {
     setMobileOpen(false);
     setDropOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setProfileImageBroken(false);
+  }, [profileImageUrl]);
 
   // Prevent body scroll when mobile drawer open
   useEffect(() => {
@@ -258,10 +297,11 @@ export default function Header({ variant = "landing" }: HeaderProps) {
                   overflow: "hidden",
                 }}
               >
-                {user.profile_image_url ? (
+                {profileImageUrl && !profileImageBroken ? (
                   <img
-                    src={user.profile_image_url}
+                    src={profileImageUrl}
                     alt={user.name}
+                    onError={() => setProfileImageBroken(true)}
                     style={{
                       width: "100%",
                       height: "100%",

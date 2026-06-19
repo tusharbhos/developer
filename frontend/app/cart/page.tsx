@@ -16,6 +16,9 @@ import {
 import {
   ApiProject,
   fetchAllProjects,
+  fetchProjectById,
+  getProjectPresentationId,
+  getProjectRealEstateCategories,
   getProjectShowcaseVideo,
   getProjectShowcaseVideos,
   mediaUrl,
@@ -24,6 +27,10 @@ import {
   toNumber,
   toStatusLabel,
 } from "@/lib/conectr";
+
+const PROJECTS_CACHE_KEY = "projects:list:v3";
+const CUSTOMERS_CACHE_KEY = "cart:customers:v1";
+const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   "under construction": { bg: "rgba(249,115,22,0.12)", color: "#b47a00" },
@@ -62,6 +69,8 @@ function mapProjectCard(project: ApiProject): LinkedProjectCard {
       "",
     showcase_url: getProjectShowcaseVideo(project) || undefined,
     showcase_urls: getProjectShowcaseVideos(project),
+    presentation_id: getProjectPresentationId(project),
+    real_estate_categories: getProjectRealEstateCategories(project),
     unit_types: unitTypes.length ? unitTypes.join(" / ") : "-",
     area: areaText,
     possession: normalize(project.possession_date) || "-",
@@ -70,6 +79,57 @@ function mapProjectCard(project: ApiProject): LinkedProjectCard {
       typeof project.available_units === "number"
         ? project.available_units
         : undefined,
+  };
+}
+
+function readCache<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { data?: T; savedAt?: number };
+    if (!cached.savedAt || Date.now() - cached.savedAt > CACHE_TTL_MS) {
+      return null;
+    }
+    return cached.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache<T>(key: string, data: T) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({ data, savedAt: Date.now() }),
+    );
+  } catch {
+    // Cache is best-effort only.
+  }
+}
+
+function mergeProjects(
+  current: ApiProject[],
+  incoming: ApiProject[],
+): ApiProject[] {
+  const byId = new Map<number, ApiProject>();
+  current.forEach((project) => byId.set(project.id, project));
+  incoming.forEach((project) => byId.set(project.id, project));
+  return Array.from(byId.values());
+}
+
+function cartItemToProject(item: {
+  id: number;
+  title: string;
+  image_url?: string;
+}): ApiProject {
+  return {
+    id: item.id,
+    title: item.title,
+    background_image_mobile: item.image_url || null,
   };
 }
 
@@ -115,7 +175,7 @@ function CartProjectMedia({
           loop={!hasMultipleVideos}
           muted
           playsInline
-          preload="auto"
+          preload="metadata"
           onEnded={hasMultipleVideos ? goNextVideo : undefined}
           style={{
             width: "100%",
@@ -175,6 +235,7 @@ export default function CartPage() {
   const { cartItems, removeFromCart, addToCart, clearCart } = useCart();
   const clearCartRef = useRef(clearCart);
   const clearCartAfterLeavingRef = useRef(false);
+  const projectsFetchStartedRef = useRef(false);
 
   // All projects
   const [allProjects, setAllProjects] = useState<ApiProject[]>([]);
@@ -282,13 +343,25 @@ export default function CartPage() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    let active = true;
-    setProjectsLoading(true);
+    const cachedProjects = readCache<ApiProject[]>(PROJECTS_CACHE_KEY);
+    if (cachedProjects?.length) {
+      setAllProjects(cachedProjects);
+      setProjectsLoading(false);
+    } else {
+      setAllProjects(cartItems.map(cartItemToProject));
+      setProjectsLoading(false);
+    }
 
+    if (projectsFetchStartedRef.current) return;
+    projectsFetchStartedRef.current = true;
+
+    let active = true;
     fetchAllProjects()
       .then((res) => {
         if (!active) return;
-        setAllProjects(res?.projects || []);
+        const freshProjects = res?.projects || [];
+        setAllProjects((current) => mergeProjects(current, freshProjects));
+        writeCache(PROJECTS_CACHE_KEY, freshProjects);
       })
       .catch((e) => {
         if (!active) return;
@@ -301,19 +374,27 @@ export default function CartPage() {
     return () => {
       active = false;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, cartItems]);
 
   // Load customers
   useEffect(() => {
     if (!isAuthenticated) return;
 
     let active = true;
-    setCustomersLoading(true);
+    const cachedCustomers = readCache<Customer[]>(CUSTOMERS_CACHE_KEY);
+    if (cachedCustomers?.length) {
+      setCustomers(cachedCustomers);
+      setCustomersLoading(false);
+    } else {
+      setCustomersLoading(true);
+    }
 
     CustomerAPI.list()
       .then((res) => {
         if (!active) return;
-        setCustomers(res.data || []);
+        const list = res.data || [];
+        setCustomers(list);
+        writeCache(CUSTOMERS_CACHE_KEY, list);
       })
       .catch((e) => {
         if (!active) return;
@@ -328,23 +409,57 @@ export default function CartPage() {
     };
   }, [isAuthenticated]);
 
-  // Filter projects by search
-  const filteredProjects = useMemo(() => {
-    if (!projectSearch.trim()) return allProjects;
-    const query = projectSearch.toLowerCase();
-    return allProjects.filter(
-      (p) =>
-        normalize(p.title)?.toLowerCase().includes(query) ||
-        normalize(p.developer)?.toLowerCase().includes(query) ||
-        normalize(p.location)?.toLowerCase().includes(query),
-    );
-  }, [allProjects, projectSearch]);
+  const projectById = useMemo(() => {
+    const map = new Map<number, ApiProject>();
+    allProjects.forEach((project) => map.set(project.id, project));
+    return map;
+  }, [allProjects]);
 
-  // Cart projects
   const cartProjects = useMemo(
-    () => allProjects.filter((p) => cartProjectIds.includes(p.id)),
-    [allProjects, cartProjectIds],
+    () =>
+      cartItems.map((item) => projectById.get(item.id) ?? cartItemToProject(item)),
+    [cartItems, projectById],
   );
+
+  const displayedCartProjects = useMemo(() => {
+    const query = projectSearch.toLowerCase().trim();
+    return cartItems
+      .map((item) => projectById.get(item.id) ?? cartItemToProject(item))
+      .filter((project) => {
+        if (!query) return true;
+        return (
+          normalize(project.title).toLowerCase().includes(query) ||
+          normalize(project.developer).toLowerCase().includes(query) ||
+          normalize(project.location).toLowerCase().includes(query)
+        );
+      });
+  }, [cartItems, projectById, projectSearch]);
+
+  const hydrateCartProjectDetails = useCallback(async () => {
+    const missingIds = cartProjects
+      .filter((project) => !getProjectPresentationId(project))
+      .map((project) => project.id);
+
+    if (!missingIds.length) return cartProjects;
+
+    const fetchedProjects = (
+      await Promise.all(missingIds.map((id) => fetchProjectById(id)))
+    ).filter((project): project is ApiProject => Boolean(project));
+
+    if (!fetchedProjects.length) return cartProjects;
+
+    const nextAllProjects = mergeProjects(allProjects, fetchedProjects);
+    setAllProjects(nextAllProjects);
+    writeCache(PROJECTS_CACHE_KEY, nextAllProjects);
+
+    const nextProjectById = new Map<number, ApiProject>();
+    nextAllProjects.forEach((project) =>
+      nextProjectById.set(project.id, project),
+    );
+    return cartItems.map(
+      (item) => nextProjectById.get(item.id) ?? cartItemToProject(item),
+    );
+  }, [allProjects, cartItems, cartProjects]);
 
   const selectedCustomer = useMemo(
     () => customers.find((c) => c.id === selectedCustomerId) || null,
@@ -353,8 +468,8 @@ export default function CartPage() {
 
   const todayDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  const buildProjectMessage = useCallback(() => {
-    return cartProjects
+  const formatProjectMessage = useCallback((projects: ApiProject[]) => {
+    return projects
       .map((project, index) => {
         const title = normalize(project.title) || "*****";
         const developer = normalize(project.developer) || "*****";
@@ -394,18 +509,23 @@ export default function CartPage() {
         return [header, detailsOnly].join("\n");
       })
       .join("\n\n");
-  }, [cartProjects]);
+  }, []);
 
-  const createCustomerLink = useCallback(async () => {
+  const buildProjectMessage = useCallback(
+    () => formatProjectMessage(cartProjects),
+    [cartProjects, formatProjectMessage],
+  );
+
+  const createCustomerLink = useCallback(async (projects = cartProjects) => {
     if (!selectedCustomerId) {
       throw new Error("Please select a customer first.");
     }
 
-    if (!cartProjects.length) {
+    if (!projects.length) {
       throw new Error("Please add at least one project to cart.");
     }
 
-    const payload: LinkedProjectCard[] = cartProjects.map((project) => ({
+    const payload: LinkedProjectCard[] = projects.map((project) => ({
       ...mapProjectCard(project),
       meeting_date: cartItemsById[project.id]?.meeting_date || todayDate,
     }));
@@ -447,7 +567,11 @@ export default function CartPage() {
 
   // Add customer
   const handleCustomerAdded = (customer: Customer) => {
-    setCustomers((prev) => [customer, ...prev]);
+    setCustomers((prev) => {
+      const next = [customer, ...prev];
+      writeCache(CUSTOMERS_CACHE_KEY, next);
+      return next;
+    });
     setSelectedCustomerId(customer.id);
     setShowAddCustomer(false);
   };
@@ -469,9 +593,24 @@ export default function CartPage() {
 
     setIsSending(true);
     try {
-      const messageSnapshot = buildProjectMessage();
-      const projectCountSnapshot = cartProjects.length;
-      const publicUrl = await createCustomerLink();
+      const readyProjects = await hydrateCartProjectDetails();
+      const missingPresentationProjects = readyProjects.filter(
+        (project) => !getProjectPresentationId(project),
+      );
+
+      if (missingPresentationProjects.length) {
+        const names = missingPresentationProjects
+          .map((project) => normalize(project.title))
+          .filter(Boolean)
+          .join(", ");
+        throw new Error(
+          `ConectR presentation code is missing for ${names || "selected project"}.`,
+        );
+      }
+
+      const messageSnapshot = formatProjectMessage(readyProjects);
+      const projectCountSnapshot = readyProjects.length;
+      const publicUrl = await createCustomerLink(readyProjects);
       setGeneratedLink(publicUrl);
       setGeneratedMessage(messageSnapshot);
       setGeneratedProjectCount(projectCountSnapshot);
@@ -647,7 +786,7 @@ export default function CartPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {cartProjects.map((project) => {
+                    {displayedCartProjects.map((project) => {
                       const title = normalize(project.title) || "Project";
                       const image =
                         mediaUrl(project.background_image_mobile) ||

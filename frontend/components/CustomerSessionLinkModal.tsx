@@ -1,13 +1,18 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiUser,
   Customer,
   CustomerSessionLink,
   CustomerSessionLinkAPI,
 } from "@/lib/api";
-import { getPresentationIdForProject } from "@/lib/presentationIds";
+import {
+  ApiProject,
+  fetchAllProjects,
+  getProjectPresentationId,
+  normalize,
+} from "@/lib/conectr";
 
 function formatDateTime(value?: string) {
   if (!value) return "-";
@@ -55,6 +60,7 @@ export default function CustomerSessionLinkModal({
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [apiProjects, setApiProjects] = useState<ApiProject[]>([]);
 
   const projectOptions = useMemo(() => {
     if (!customer) return [];
@@ -78,12 +84,44 @@ export default function CustomerSessionLinkModal({
   const [viewerEmail, setViewerEmail] = useState("");
   const [viewerPhone, setViewerPhone] = useState("");
 
+  const projectByName = useMemo(() => {
+    const map = new Map<string, ApiProject>();
+    apiProjects.forEach((project) => {
+      const key = normalize(project.title).toLowerCase();
+      if (key) map.set(key, project);
+    });
+    return map;
+  }, [apiProjects]);
+
+  const resolvePresentationId = useCallback(
+    (name: string) =>
+      getProjectPresentationId(
+        projectByName.get(normalize(name).toLowerCase()),
+      ),
+    [projectByName],
+  );
+
+  useEffect(() => {
+    if (!customer) return;
+    let active = true;
+    fetchAllProjects()
+      .then(({ projects }) => {
+        if (active) setApiProjects(projects);
+      })
+      .catch(() => {
+        if (active) setApiProjects([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [customer]);
+
   useEffect(() => {
     if (!customer) return;
 
     const defaultProject = projectOptions[0] || "";
     setProjectName(defaultProject);
-    setPresentationId(getPresentationIdForProject(defaultProject));
+    setPresentationId(resolvePresentationId(defaultProject));
 
     setPresenterName(user?.name || "");
     setPresenterPlatformId(makePresenterId(user));
@@ -96,14 +134,14 @@ export default function CustomerSessionLinkModal({
 
     setError("");
     setOk("");
-  }, [customer, user, projectOptions]);
+  }, [customer, user, projectOptions, resolvePresentationId]);
 
   if (!customer) return null;
 
   const handleCreate = async () => {
     if (!presentationId.trim()) {
       setError(
-        "Presentation ID is not configured for this project. Please select The Altius or Gagan Myra.",
+        "ConectR presentation code is not configured for this project. Please add a conectr.co website showcase link in ConectR.",
       );
       return;
     }
@@ -205,7 +243,7 @@ export default function CustomerSessionLinkModal({
                   const selectedProject = e.target.value;
                   setProjectName(selectedProject);
                   setPresentationId(
-                    getPresentationIdForProject(selectedProject),
+                    resolvePresentationId(selectedProject),
                   );
                 }}
               >
@@ -213,8 +251,8 @@ export default function CustomerSessionLinkModal({
                 {projectOptions.map((project) => (
                   <option key={project} value={project}>
                     {project}
-                    {getPresentationIdForProject(project)
-                      ? ` - ${getPresentationIdForProject(project)}`
+                    {resolvePresentationId(project)
+                      ? ` - ${resolvePresentationId(project)}`
                       : ""}
                   </option>
                 ))}

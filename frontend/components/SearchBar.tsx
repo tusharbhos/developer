@@ -6,6 +6,7 @@ import React from "react";
 interface SearchBarProps {
   value: string;
   onChange: (v: string) => void;
+  onSearch: (v: string) => void;
   onFilterClick: () => void;
   activeFilterCount?: number;
 }
@@ -13,9 +14,14 @@ interface SearchBarProps {
 export default function SearchBar({
   value,
   onChange,
+  onSearch,
   onFilterClick,
   activeFilterCount = 0,
 }: SearchBarProps) {
+  const submitSearch = () => {
+    onSearch(value.trim());
+  };
+
   return (
     <div className="search-container w-full max-w-3xl mx-auto">
       {/* ── Search Input ── */}
@@ -39,10 +45,16 @@ export default function SearchBar({
         </span>
 
         <input
-          type="search"
+          type="text"
           className="search-input"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submitSearch();
+            }
+          }}
           placeholder="Search projects, developers, locations…"
           autoComplete="off"
           autoCorrect="off"
@@ -54,7 +66,10 @@ export default function SearchBar({
         {value && (
           <button
             className="search-clear"
-            onClick={() => onChange("")}
+            onClick={() => {
+              onChange("");
+              onSearch("");
+            }}
             aria-label="Clear search"
             type="button"
           >
@@ -64,6 +79,20 @@ export default function SearchBar({
       </div>
 
       {/* ── Filter Button ── */}
+      <button
+        type="button"
+        className="btn btn-gold shrink-0"
+        onClick={submitSearch}
+        style={{
+          minHeight: "3rem",
+          padding: "0.72rem 1.35rem",
+          borderRadius: "1rem",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Search
+      </button>
+
       <button
         type="button"
         className={`filter-btn${activeFilterCount > 0 ? " active" : ""}`}

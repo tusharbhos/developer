@@ -174,6 +174,7 @@ function normalizeSessionStatus(
   hasSession = true,
   joinees = 0,
   eventCount = 0,
+  hasAnalysis = false,
 ) {
   const normalized = String(rawStatus || "scheduled").toLowerCase();
   const completedEvidence = hasCompletedSessionEvidence({
@@ -184,8 +185,11 @@ function normalizeSessionStatus(
     eventCount,
   });
   const viewerActivity = hasViewerActivity({ joinees, eventCount });
+  if (startedAt && !endedAt) return "live" as const;
   if (endedAt || normalized.includes("completed") || normalized.includes("ended")) {
-    return completedEvidence ? ("completed" as const) : ("scheduled" as const);
+    return completedEvidence && hasAnalysis
+      ? ("completed" as const)
+      : ("scheduled" as const);
   }
   const timedStatus = getTimedMeetingStatus({
     meetingDate,
@@ -194,7 +198,7 @@ function normalizeSessionStatus(
     hasViewerActivity: viewerActivity,
     completedEvidence,
   });
-  if (timedStatus === "completed") return "completed" as const;
+  if (timedStatus === "completed" && hasAnalysis) return "completed" as const;
   if (timedStatus === "live") return "live" as const;
   if (startedAt) return "live" as const;
   if (normalized.includes("live")) return "live" as const;
@@ -445,6 +449,70 @@ function extractSessionSummaryRecord(
     extractSummaryRecord(session?.analysis) ||
     extractSummaryRecord(session?.analytics_summary)
   );
+}
+
+function hasAnalysisPayload(value: unknown): boolean {
+  const summary = extractSummaryRecord(value);
+  return Boolean(summary && Object.keys(summary).length > 0);
+}
+
+function sessionFromLinkPayload(
+  link: CustomerSessionLink,
+): ConectrCustomerAnalyticsSession | null {
+  const analytics = isRecord(link.analytics_payload)
+    ? link.analytics_payload
+    : {};
+  const session = isRecord(analytics.session) ? analytics.session : {};
+  const events = Array.isArray(analytics.events) ? analytics.events : [];
+  const feedback = Array.isArray(analytics.feedback_submissions)
+    ? analytics.feedback_submissions
+    : Array.isArray(link.feedback_payload)
+      ? link.feedback_payload
+      : [];
+  const summary =
+    isRecord(link.summary_payload) && Object.keys(link.summary_payload).length > 0
+      ? link.summary_payload
+      : isRecord(analytics.summary)
+        ? analytics.summary
+        : undefined;
+
+  if (
+    Object.keys(session).length === 0 &&
+    events.length === 0 &&
+    feedback.length === 0 &&
+    !summary
+  ) {
+    return null;
+  }
+
+  return {
+    ...analytics,
+    ...session,
+    session_token: link.session_token,
+    session_code: link.session_code || link.join_code,
+    presentation_id: link.presentation_id,
+    presentation_title: link.presentation_title || link.project_name,
+    presenter_name: link.presenter_name,
+    viewer_name: link.viewer_name,
+    viewer_id: link.viewer_platform_id,
+    status:
+      typeof session.status === "string"
+        ? session.status
+        : link.status || "scheduled",
+    created_at: link.created_at,
+    started_at:
+      typeof session.started_at === "string"
+        ? session.started_at
+        : link.started_at || undefined,
+    ended_at:
+      typeof session.ended_at === "string"
+        ? session.ended_at
+        : link.ended_at || undefined,
+    event_count: Number(session.event_count || link.event_count || events.length),
+    events,
+    feedback_submissions: feedback,
+    summary,
+  };
 }
 
 function formatDateTimeValue(value?: string | null) {
@@ -752,7 +820,7 @@ export default function DashboardPage() {
   >("summary");
 
   const scopedRoles = useMemo(
-    () => new Set<string>(),
+    () => new Set(["developer_super_admin", "sourcing_admin", "sales_user"]),
     [],
   );
   const restrictProjectsForRole = Boolean(
@@ -843,24 +911,6 @@ export default function DashboardPage() {
               eventRecord,
               dataRecord,
             );
-            const normalizedEventType = (eventType || "").toLowerCase();
-            const normalizedFormName = formName.toLowerCase();
-            const isLikelySiteVisit =
-              normalizedEventType === "feedback_submitted" ||
-              normalizedEventType.includes("site") ||
-              normalizedEventType.includes("form") ||
-              normalizedFormName.includes("site visit") ||
-              Boolean(preferredSiteVisitValue);
-
-            if (!isLikelySiteVisit || !preferredSiteVisitValue) return [];
-
-            const preferredSiteVisit = parsePreferredSiteVisitDateTime(
-              preferredSiteVisitValue,
-            );
-            if (!preferredSiteVisit) return [];
-
-            const projectName =
-              link.project_name || link.presentation_title || link.presentation_id || "N/A";
             const submittedAt = firstString(
               eventRecord.created_at,
               eventRecord.submitted_at,
@@ -869,6 +919,28 @@ export default function DashboardPage() {
               dataRecord?.submitted_at,
               dataRecord?.timestamp,
             );
+            const normalizedEventType = (eventType || "").toLowerCase();
+            const normalizedFormName = formName.toLowerCase();
+            const isLikelySiteVisit =
+              normalizedEventType === "feedback_submitted" ||
+              normalizedEventType === "site_visit_booked" ||
+              normalizedEventType === "site_visit_declined" ||
+              normalizedEventType.includes("site") ||
+              normalizedEventType.includes("form") ||
+              normalizedFormName.includes("site visit") ||
+              Boolean(preferredSiteVisitValue);
+
+            if (!isLikelySiteVisit) return [];
+
+            const preferredSiteVisit = preferredSiteVisitValue
+              ? parsePreferredSiteVisitDateTime(preferredSiteVisitValue)
+              : submittedAt
+                ? parsePreferredSiteVisitDateTime(submittedAt)
+                : null;
+            if (!preferredSiteVisit) return [];
+
+            const projectName =
+              link.project_name || link.presentation_title || link.presentation_id || "N/A";
 
             return [
               {
@@ -893,7 +965,7 @@ export default function DashboardPage() {
                 selfViewUrl: link.self_view_url,
                 hasSessionLink: true,
                 siteVisitCount: 1,
-                analysis: String(preferredSiteVisitValue),
+                analysis: String(preferredSiteVisitValue || submittedAt || ""),
                 isSiteVisit: true,
               },
             ];
@@ -1030,6 +1102,13 @@ export default function DashboardPage() {
   const analyticsSessionByToken = useMemo(() => {
     const map = new Map<string, ConectrCustomerAnalyticsSession>();
 
+    sessionLinks.forEach((link) => {
+      const session = sessionFromLinkPayload(link);
+      if (session?.session_token) {
+        map.set(session.session_token, session);
+      }
+    });
+
     Object.values(analyticsByCustomer).forEach((analytics) => {
       (analytics.sessions || []).forEach((session) => {
         if (session.session_token) {
@@ -1039,7 +1118,7 @@ export default function DashboardPage() {
     });
 
     return map;
-  }, [analyticsByCustomer]);
+  }, [analyticsByCustomer, sessionLinks]);
 
   const rows = useMemo(() => {
     const projectMeetingIndex = new Map<
@@ -1087,10 +1166,18 @@ export default function DashboardPage() {
           analyticsSession?.events?.length ||
           0,
       );
+      const hasAnalysis =
+        hasAnalysisPayload(analyticsSession?.summary) ||
+        hasAnalysisPayload(link.summary_payload) ||
+        hasAnalysisPayload(
+          isRecord(link.analytics_payload)
+            ? link.analytics_payload.summary
+            : undefined,
+        );
       const joinees = inferViewerCount(
         snapshot?.joinees ?? analyticsSession?.joinees,
         eventCount,
-        0,
+        feedbackCount,
       );
       const status = normalizeSessionStatus(
         snapshot?.status || analyticsSession?.status,
@@ -1101,6 +1188,7 @@ export default function DashboardPage() {
         true,
         joinees,
         eventCount,
+        hasAnalysis,
       );
 
       acc.push({
@@ -1131,7 +1219,9 @@ export default function DashboardPage() {
         selfViewUrl: snapshot?.self_view_url || link.self_view_url,
         hasSessionLink: true,
         siteVisitCount: feedbackCount,
-        analysis: extractSummarySnippet(analyticsSession?.summary),
+        analysis: extractSummarySnippet(
+          analyticsSession?.summary || link.summary_payload,
+        ),
       });
 
       return acc;
@@ -1205,7 +1295,7 @@ export default function DashboardPage() {
       (row) => row.status === "completed" && !row.isSiteVisit,
     ).length;
     const sitevisit = dateFilteredRows.filter(
-      (row) => row.siteVisitCount > 0,
+      (row) => row.isSiteVisit,
     ).length;
 
     return { requested, scheduled, live, completed, sitevisit };

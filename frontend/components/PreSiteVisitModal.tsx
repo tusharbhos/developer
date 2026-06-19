@@ -11,13 +11,14 @@ import {
 } from "@/lib/api";
 import { format12HourTime, formatDisplayDate } from "@/lib/dateTime";
 import { useAuth } from "@/context/AuthContext";
-import { getPresentationIdForProject } from "@/lib/presentationIds";
+import {
+  ApiProject,
+  getProjectPresentationId,
+  normalize,
+} from "@/lib/conectr";
 import AddCustomerModal from "./AddCustomerModal";
 
 /* ── PRS mapping (same as CustomerSessionLinkModal)  ─────────────────────── */
-function getPresentationId(projectName: string): string {
-  return getPresentationIdForProject(projectName);
-}
 function makePresenterId(user?: ApiUser | null): string {
   if (!user) return "";
   if (user.unique_key) return user.unique_key;
@@ -47,7 +48,8 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   projectName?: string;
-  projectOptions?: string[];
+  project?: ApiProject | null;
+  projectOptions?: Array<string | ApiProject>;
   initialDate?: string;
   initialTime?: string;
   initialCustomer?: Customer;
@@ -59,6 +61,7 @@ export default function PreSiteVisitModal({
   isOpen,
   onClose,
   projectName,
+  project,
   projectOptions = [],
   initialDate,
   initialTime,
@@ -70,10 +73,29 @@ export default function PreSiteVisitModal({
   const normalizedProjectOptions = useMemo(
     () =>
       Array.from(
-        new Set(projectOptions.map((name) => name.trim()).filter(Boolean)),
+        new Set(
+          projectOptions
+            .map((option) =>
+              typeof option === "string" ? option.trim() : normalize(option.title),
+            )
+            .filter(Boolean),
+        ),
       ),
     [projectOptions],
   );
+  const projectByName = useMemo(() => {
+    const map = new Map<string, ApiProject>();
+    projectOptions.forEach((option) => {
+      if (typeof option === "string") return;
+      const key = normalize(option.title).toLowerCase();
+      if (key) map.set(key, option);
+    });
+    if (project) {
+      const key = normalize(project.title).toLowerCase();
+      if (key) map.set(key, project);
+    }
+    return map;
+  }, [projectOptions, project]);
   const dateOptions = useMemo(() => {
     const options = [...DATE_OPTIONS];
     if (initialDate && !options.some((option) => option.val === initialDate)) {
@@ -128,6 +150,10 @@ export default function PreSiteVisitModal({
     null,
   );
   const resolvedProjectName = (fixedProjectName || selectedProject).trim();
+  const resolvedProject =
+    projectByName.get(normalize(resolvedProjectName).toLowerCase()) ||
+    project ||
+    null;
   const canGenerate = Boolean(
     selectedCustomer && date && time && resolvedProjectName,
   );
@@ -244,10 +270,10 @@ export default function PreSiteVisitModal({
       return;
     }
 
-    const presentationId = getPresentationId(resolvedProjectName);
+    const presentationId = getProjectPresentationId(resolvedProject);
     if (!presentationId) {
       setError(
-        `No Presentation ID mapped for "${resolvedProjectName}". Please add it in the config.`,
+        `No ConectR presentation code found for "${resolvedProjectName}". Please add a conectr.co website showcase link in ConectR.`,
       );
       return;
     }

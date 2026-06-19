@@ -3,6 +3,7 @@
 export interface FilterState {
   projectName: string[];
   categories: string[];
+  realEstateCategories: string[];
   tags: string[];
   developer: string[];
   location: string[];
@@ -22,6 +23,7 @@ export interface FilterState {
 export const DEFAULT_FILTERS: FilterState = {
   projectName: [],
   categories: [],
+  realEstateCategories: [],
   tags: [],
   developer: [],
   location: [],

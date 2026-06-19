@@ -26,6 +26,8 @@ import {
   fetchProjectsPage,
   fetchMeta,
   getProjectDetailPath,
+  getProjectPresentationId,
+  getProjectRealEstateCategories,
   getProjectShowcaseVideo,
   getProjectShowcaseVideos,
   mediaUrl,
@@ -37,52 +39,62 @@ import {
 
 /* ── how many cards per "page" load ── */
 const PAGE_SIZE = 12;
-const PROJECTS_CACHE_KEY = "projects:first-page:v2";
+const PROJECTS_CACHE_KEY = "projects:list:v3";
+const PROJECTS_CACHE_TTL_MS = 30 * 60 * 1000;
+const BACKGROUND_PREFETCH_TOTAL_LIMIT = 300;
 
 type ProjectsPageCache = {
   projects: ApiProject[];
-  pendingProjects: ApiProject[];
   nextPageUrl: string | null;
   total: number;
   savedAt: number;
 };
 
-async function fetchProjectBatch(
-  providerUrl: string | null,
-  pendingProjects: ApiProject[] = [],
-  knownTotal = 0,
-): Promise<{
-  projects: ApiProject[];
-  pendingProjects: ApiProject[];
-  nextPageUrl: string | null;
-  total: number;
-}> {
-  const buffered = [...pendingProjects];
-  let nextUrl = providerUrl;
-  let total = knownTotal;
-  let isFirstRequest = providerUrl === null && pendingProjects.length === 0;
+function mergeProjects(
+  current: ApiProject[],
+  incoming: ApiProject[],
+): ApiProject[] {
+  const byId = new Map<number, ApiProject>();
+  current.forEach((project) => byId.set(project.id, project));
+  incoming.forEach((project) => byId.set(project.id, project));
+  return Array.from(byId.values());
+}
 
-  while (buffered.length < PAGE_SIZE && (isFirstRequest || nextUrl)) {
-    const page = await fetchProjectsPage(
-      isFirstRequest ? undefined : nextUrl ?? undefined,
-      PAGE_SIZE,
-    );
-    isFirstRequest = false;
-    total = page.total || total;
-    nextUrl = page.nextPageUrl;
+function readProjectsCache(): ProjectsPageCache | null {
+  if (typeof window === "undefined") return null;
 
-    const seen = new Set(buffered.map((project) => project.id));
-    buffered.push(
-      ...page.projects.filter((project) => !seen.has(project.id)),
-    );
+  try {
+    const raw = window.localStorage.getItem(PROJECTS_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw) as ProjectsPageCache;
+    if (!Array.isArray(cache.projects) || !cache.projects.length) return null;
+    if (Date.now() - (cache.savedAt || 0) > PROJECTS_CACHE_TTL_MS) return null;
+    return cache;
+  } catch {
+    return null;
   }
+}
 
-  return {
-    projects: buffered.slice(0, PAGE_SIZE),
-    pendingProjects: buffered.slice(PAGE_SIZE),
-    nextPageUrl: nextUrl,
-    total: total || buffered.length,
-  };
+function writeProjectsCache(
+  projects: ApiProject[],
+  nextPageUrl: string | null,
+  total: number,
+) {
+  if (typeof window === "undefined" || !projects.length) return;
+
+  try {
+    window.localStorage.setItem(
+      PROJECTS_CACHE_KEY,
+      JSON.stringify({
+        projects,
+        nextPageUrl,
+        total: total || projects.length,
+        savedAt: Date.now(),
+      } satisfies ProjectsPageCache),
+    );
+  } catch {
+    // Storage can fail in private mode or when quota is full; UI should still work.
+  }
 }
 
 function valueInString(selected: string[], actual: string): boolean {
@@ -431,7 +443,7 @@ function ProjectCardUI({
   hideCustomerActions,
 }: {
   project: ApiProject;
-  onSchedule: (name: string) => void;
+  onSchedule: (project: ApiProject) => void;
   onAddToCart: (project: ApiProject) => void;
   onViewDetails: (project: ApiProject) => void;
   isInCart: boolean;
@@ -720,7 +732,7 @@ function ProjectCardUI({
         {!hideCustomerActions && (
           <div className="flex items-center w-full mt-auto pt-1 gap-2">
             <button
-              onClick={() => onSchedule(title)}
+              onClick={() => onSchedule(project)}
               className="btn btn-gold w-full"
               style={{
                 fontSize: "0.7rem",
@@ -913,9 +925,12 @@ export default function ProjectsPage() {
   const [showApprovalHub, setShowApprovalHub] = useState(false);
   const [showApprovalPrompt, setShowApprovalPrompt] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState("");
+  const [selectedProject, setSelectedProject] = useState<ApiProject | null>(
+    null,
+  );
   const [toast, setToast] = useState("");
   const [addProjectOpen, setAddProjectOpen] = useState(false);
 
@@ -926,8 +941,8 @@ export default function ProjectsPage() {
   const [metaLoading, setMetaLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [nextPageUrl, setNextPageUrl] = useState<string | null>(null);
-  const [pendingProjects, setPendingProjects] = useState<ApiProject[]>([]);
   const [totalProjects, setTotalProjects] = useState(0);
+  const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvingId, setApprovingId] = useState<number | null>(null);
 
@@ -938,6 +953,7 @@ export default function ProjectsPage() {
   const [filterOptions, setFilterOptions] = useState<SidebarOptions>({
     projects: [],
     categories: [],
+    realEstateCategories: [],
     tags: [],
     amenities: [],
     developers: [],
@@ -969,72 +985,61 @@ export default function ProjectsPage() {
 
     const loadProjects = async () => {
       let usedCache = false;
-      if (typeof window !== "undefined") {
-        const cachedProjects =
-          window.localStorage.getItem(PROJECTS_CACHE_KEY);
-        if (cachedProjects) {
-          try {
-            const cache = JSON.parse(cachedProjects) as ProjectsPageCache;
-            if (
-              Array.isArray(cache.projects) &&
-              cache.projects.length > 0
-            ) {
-              if (active) {
-                setProjects(cache.projects.slice(0, PAGE_SIZE));
-                setPendingProjects(cache.pendingProjects ?? []);
-                setNextPageUrl(cache.nextPageUrl);
-                setTotalProjects(cache.total);
-                setProjectsLoading(false);
-              }
-              usedCache = true;
-            }
-          } catch {
-            // ignore stale cache
-          }
+      const cache = readProjectsCache();
+
+      if (cache) {
+        if (active) {
+          setProjects(cache.projects);
+          setNextPageUrl(cache.nextPageUrl);
+          setTotalProjects(cache.total || cache.projects.length);
+          setVisibleLimit(PAGE_SIZE);
+          setProjectsLoading(false);
         }
+        usedCache = true;
       }
 
       try {
         if (!usedCache) setProjectsLoading(true);
         const firstPage = await fetchProjectsPage(undefined, PAGE_SIZE);
-        if (active && !usedCache) {
-          setProjects(firstPage.projects);
+        const mergedFirstPage =
+          usedCache && cache
+            ? mergeProjects(cache.projects, firstPage.projects)
+            : firstPage.projects;
+
+        if (active) {
+          setProjects(mergedFirstPage);
           setNextPageUrl(firstPage.nextPageUrl);
           setTotalProjects(firstPage.total);
-          setProjectsLoading(false);
-          window.localStorage.setItem(
-            PROJECTS_CACHE_KEY,
-            JSON.stringify({
-              projects: firstPage.projects,
-              pendingProjects: [],
-              nextPageUrl: firstPage.nextPageUrl,
-              total: firstPage.total,
-              savedAt: Date.now(),
-            } satisfies ProjectsPageCache),
+          writeProjectsCache(
+            mergedFirstPage,
+            firstPage.nextPageUrl,
+            firstPage.total,
           );
+          setProjectsLoading(false);
         }
 
-        const page = await fetchProjectBatch(
-          firstPage.nextPageUrl,
-          firstPage.projects,
-          firstPage.total,
-        );
-        if (active) {
-          setProjects(page.projects);
-          setPendingProjects(page.pendingProjects);
-          setNextPageUrl(page.nextPageUrl);
-          setTotalProjects(page.total);
-          if (typeof window !== "undefined") {
-            window.localStorage.setItem(
-              PROJECTS_CACHE_KEY,
-              JSON.stringify({
-                projects: page.projects,
-                pendingProjects: page.pendingProjects,
-                nextPageUrl: page.nextPageUrl,
-                total: page.total,
-                savedAt: Date.now(),
-              } satisfies ProjectsPageCache),
-            );
+        const shouldPrefetchInBackground =
+          firstPage.nextPageUrl &&
+          firstPage.total > 0 &&
+          firstPage.total <= BACKGROUND_PREFETCH_TOTAL_LIMIT;
+
+        if (shouldPrefetchInBackground) {
+          let nextUrl = firstPage.nextPageUrl;
+          let allProjects = mergedFirstPage;
+          let total = firstPage.total;
+
+          while (active && nextUrl) {
+            const page = await fetchProjectsPage(nextUrl, PAGE_SIZE);
+            allProjects = mergeProjects(allProjects, page.projects);
+            total = page.total || total;
+            nextUrl = page.nextPageUrl;
+
+            if (active) {
+              setProjects(allProjects);
+              setNextPageUrl(nextUrl);
+              setTotalProjects(total);
+              writeProjectsCache(allProjects, nextUrl, total);
+            }
           }
         }
       } catch {
@@ -1053,6 +1058,11 @@ export default function ProjectsPage() {
         );
 
         const categories = (filtersMap.get("categories")?.options ?? [])
+          .map((o) => normalize(o.name))
+          .filter(Boolean);
+        const realEstateCategories = (
+          filtersMap.get("real_estate_categories")?.options ?? []
+        )
           .map((o) => normalize(o.name))
           .filter(Boolean);
         const tags = (filtersMap.get("tags")?.options ?? [])
@@ -1105,6 +1115,7 @@ export default function ProjectsPage() {
         setFilterOptions((prev) => ({
           ...prev,
           categories,
+          realEstateCategories,
           tags,
           amenities,
           developers,
@@ -1175,6 +1186,8 @@ export default function ProjectsPage() {
     );
 
     return projects.filter((project) => {
+      if (!getProjectPresentationId(project)) return false;
+
       const title = normalize(project.title);
       const developer = normalize(project.developer);
       const location = normalize(project.location);
@@ -1190,6 +1203,7 @@ export default function ProjectsPage() {
       const categories = (project.categories ?? []).map((item) =>
         normalize(item.name),
       );
+      const realEstateCategories = getProjectRealEstateCategories(project);
       const tags = (project.tags ?? []).map((item) => normalize(item.name));
       const amenities = (project.amenities ?? []).map((item) =>
         normalize(item.name),
@@ -1233,6 +1247,10 @@ export default function ProjectsPage() {
       const matchDeveloper = valueInString(filters.developer, developer);
       const matchLocation = valueInString(filters.location, location);
       const matchCategories = intersects(filters.categories, categories);
+      const matchRealEstateCategories = intersects(
+        filters.realEstateCategories,
+        realEstateCategories,
+      );
       const matchTags = intersects(filters.tags, tags);
       const matchAmenities = intersects(filters.amenities, amenities);
       const matchStatus =
@@ -1272,6 +1290,7 @@ export default function ProjectsPage() {
         matchDeveloper &&
         matchLocation &&
         matchCategories &&
+        matchRealEstateCategories &&
         matchTags &&
         matchAmenities &&
         matchStatus &&
@@ -1292,33 +1311,45 @@ export default function ProjectsPage() {
     user?.assigned_projects,
   ]);
 
-  const visibleProjects = filteredProjects;
-  const hasMore = pendingProjects.length > 0 || Boolean(nextPageUrl);
+  const visibleProjects = filteredProjects.slice(0, visibleLimit);
+  const hasMore =
+    visibleLimit < filteredProjects.length || Boolean(nextPageUrl);
+
+  useEffect(() => {
+    setVisibleLimit(PAGE_SIZE);
+  }, [search, filters]);
 
   /* ── IntersectionObserver — load more when sentinel enters viewport ── */
   const loadMore = useCallback(() => {
-    if ((!nextPageUrl && pendingProjects.length === 0) || loadingMore) return;
+    if (loadingMore) return;
+
+    if (visibleLimit < filteredProjects.length) {
+      setVisibleLimit((current) =>
+        Math.min(current + PAGE_SIZE, filteredProjects.length),
+      );
+      return;
+    }
+
+    if (!nextPageUrl) return;
+
     setLoadingMore(true);
-    void fetchProjectBatch(nextPageUrl, pendingProjects, totalProjects)
+    void fetchProjectsPage(nextPageUrl, PAGE_SIZE)
       .then((page) => {
         setProjects((current) => {
-          const seen = new Set(current.map((project) => project.id));
-          const nextProjects = [
-            ...current,
-            ...page.projects.filter((project) => !seen.has(project.id)),
-          ];
+          const nextProjects = mergeProjects(current, page.projects);
+          writeProjectsCache(nextProjects, page.nextPageUrl, page.total);
           return nextProjects;
         });
-        setPendingProjects(page.pendingProjects);
         setNextPageUrl(page.nextPageUrl);
         setTotalProjects(page.total);
+        setVisibleLimit((current) => current + PAGE_SIZE);
       })
       .catch(() => {
         setToast("Unable to load more projects.");
         setTimeout(() => setToast(""), 2500);
       })
       .finally(() => setLoadingMore(false));
-  }, [nextPageUrl, pendingProjects, totalProjects, loadingMore]);
+  }, [nextPageUrl, filteredProjects.length, visibleLimit, loadingMore]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -1336,6 +1367,7 @@ export default function ProjectsPage() {
   const activeFilterCount = [
     filters.projectName.length,
     filters.categories.length,
+    filters.realEstateCategories.length,
     filters.tags.length,
     filters.developer.length,
     filters.location.length,
@@ -1348,12 +1380,14 @@ export default function ProjectsPage() {
     filters.unitsAvailable ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
-  const handleSchedule = (name: string) => {
-    setSelectedProject(name);
+  const handleSchedule = (project: ApiProject) => {
+    setSelectedProject(project);
     setScheduleOpen(true);
   };
   const handleScheduled = () => {
-    setToast(`Meeting scheduled for "${selectedProject}".`);
+    setToast(
+      `Meeting scheduled for "${normalize(selectedProject?.title) || "project"}".`,
+    );
     setTimeout(() => setToast(""), 3500);
   };
 
@@ -1477,7 +1511,8 @@ export default function ProjectsPage() {
       <PreSiteVisitModal
         isOpen={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        projectName={selectedProject}
+        project={selectedProject}
+        projectName={normalize(selectedProject?.title)}
         onScheduled={handleScheduled}
       />
 
@@ -1674,8 +1709,9 @@ export default function ProjectsPage() {
           <div className="max-w-7xl mx-auto">
             <div>
               <SearchBar
-                value={search}
-                onChange={setSearch}
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onSearch={setSearch}
                 onFilterClick={() => setSidebarOpen(true)}
                 activeFilterCount={activeFilterCount}
               />
@@ -1697,12 +1733,10 @@ export default function ProjectsPage() {
                 className="text-xs font-semibold"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                {/* show how many are visible vs total */}
-                Showing {visibleProjects.length} of{" "}
-                {activeFilterCount > 0 || search.trim()
-                  ? `${filteredProjects.length} matching`
-                  : totalProjects || projects.length}{" "}
-                project{(totalProjects || projects.length) !== 1 ? "s" : ""}
+                Showing {visibleProjects.length} of {filteredProjects.length}{" "}
+                project{filteredProjects.length !== 1 ? "s" : ""}
+                {hasMore &&
+                  ` · ${projects.length} loaded${totalProjects ? ` from ${totalProjects}` : ""}`}
                 {activeFilterCount > 0 &&
                   ` · ${activeFilterCount} filter${activeFilterCount !== 1 ? "s" : ""} active`}
               </p>
@@ -1754,6 +1788,7 @@ export default function ProjectsPage() {
                     priceMin: filterOptions.priceRange.min,
                     priceMax: filterOptions.priceRange.max,
                   });
+                  setSearchDraft("");
                   setSearch("");
                 }}
               >
@@ -1820,7 +1855,7 @@ export default function ProjectsPage() {
                           color: "var(--navy-600)",
                         }}
                       >
-                        All {projects.length} projects loaded
+                        All {filteredProjects.length} projects loaded
                       </span>
                     </div>
                   </div>
@@ -1864,7 +1899,13 @@ export default function ProjectsPage() {
                         color: "var(--navy-600)",
                       }}
                     >
-                      {Math.max(0, totalProjects - projects.length)} left
+                      {Math.max(
+                        0,
+                        visibleLimit < filteredProjects.length
+                          ? filteredProjects.length - visibleLimit
+                          : totalProjects - projects.length,
+                      )}{" "}
+                      left
                     </span>
                   </button>
                 </div>
