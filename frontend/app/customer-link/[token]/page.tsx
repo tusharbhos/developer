@@ -108,6 +108,72 @@ function getDefaultSelfViewSlot() {
   };
 }
 
+function lookupWords(value: string | null | undefined): string[] {
+  const ignored = new Set(["by", "the", "at"]);
+  return normalize(value)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 1 && !ignored.has(word));
+}
+
+function directPresentationId(project: LinkedProjectCard): string {
+  const raw =
+    project.presentation_id ||
+    (project as { presentation_code?: string }).presentation_code ||
+    "";
+
+  return normalize(raw).toUpperCase();
+}
+
+function projectMatchScore(card: LinkedProjectCard, project: ApiProject): number {
+  if (typeof card.id === "number" && card.id === project.id) return 100;
+
+  const cardTitle = normalize(card.title).toLowerCase();
+  const projectTitle = normalize(project.title).toLowerCase();
+  if (cardTitle && projectTitle && cardTitle === projectTitle) return 90;
+
+  const cardWords = new Set([
+    ...lookupWords(card.title),
+    ...lookupWords(card.developer),
+  ]);
+  const projectTitleWords = lookupWords(project.title);
+  const projectDeveloperWords = lookupWords(project.developer);
+  const projectWords = [...projectTitleWords, ...projectDeveloperWords];
+
+  if (!cardWords.size || !projectWords.length) return 0;
+
+  const matchedWords = projectWords.filter((word) => cardWords.has(word)).length;
+  const titleMatched = projectTitleWords.filter((word) => cardWords.has(word)).length;
+  const developerMatched = projectDeveloperWords.filter((word) => cardWords.has(word)).length;
+
+  return matchedWords + titleMatched * 2 + developerMatched;
+}
+
+function resolvePresentationId(
+  project: LinkedProjectCard,
+  projectsByTitle: Record<string, ApiProject>,
+): string {
+  const direct = directPresentationId(project);
+  if (direct) return direct;
+
+  const titleKey = normalize(project.title).toLowerCase();
+  const exactTitleProject = titleKey ? projectsByTitle[titleKey] : undefined;
+  const exactTitlePresentationId = getProjectPresentationId(exactTitleProject);
+  if (exactTitlePresentationId) return exactTitlePresentationId;
+
+  const bestMatch = Object.values(projectsByTitle)
+    .map((apiProject) => ({
+      project: apiProject,
+      score: projectMatchScore(project, apiProject),
+      presentationId: getProjectPresentationId(apiProject),
+    }))
+    .filter((item) => item.score > 0 && item.presentationId)
+    .sort((left, right) => right.score - left.score)[0];
+
+  return bestMatch?.presentationId || "";
+}
+
 function LinkedProjectMedia({
   project,
   fallbackVideos,
@@ -231,11 +297,8 @@ export default function PublicCustomerLinkPage() {
   >(null);
   const [selfViewCreating, setSelfViewCreating] = useState(false);
   const [showSelfCalendarPicker, setShowSelfCalendarPicker] = useState(false);
-  const [fallbackProjectVideos, setFallbackProjectVideos] = useState<
-    Record<number, string[]>
-  >({});
-  const [fallbackProjectVideosByTitle, setFallbackProjectVideosByTitle] =
-    useState<Record<string, string[]>>({});
+  const [fallbackProjectVideos] = useState<Record<number, string[]>>({});
+  const [fallbackProjectVideosByTitle] = useState<Record<string, string[]>>({});
   const [apiProjectsByTitle, setApiProjectsByTitle] = useState<
     Record<string, ApiProject>
   >({});
@@ -324,132 +387,6 @@ export default function PublicCustomerLinkPage() {
 
     return sections;
   }, [sortedProjectsByMeetingDate]);
-
-  const missingVideoProjectIds = useMemo(() => {
-    const ids = selectedProjects
-      .filter((project) => {
-        if (typeof project.id !== "number") return false;
-        const hasInlineVideos =
-          Array.isArray(project.showcase_urls) && project.showcase_urls.length;
-        const hasSingleVideo =
-          typeof project.showcase_url === "string" &&
-          project.showcase_url.trim().length > 0;
-        return (
-          !hasInlineVideos &&
-          !hasSingleVideo &&
-          !fallbackProjectVideos[project.id]
-        );
-      })
-      .map((project) => project.id as number);
-
-    return Array.from(new Set(ids));
-  }, [selectedProjects, fallbackProjectVideos]);
-
-  const missingVideoProjectTitles = useMemo(() => {
-    const titles = selectedProjects
-      .filter((project) => {
-        const hasInlineVideos =
-          Array.isArray(project.showcase_urls) && project.showcase_urls.length;
-        const hasSingleVideo =
-          typeof project.showcase_url === "string" &&
-          project.showcase_url.trim().length > 0;
-        const titleKey = normalize(project.title).toLowerCase();
-        return !hasInlineVideos && !hasSingleVideo && titleKey.length > 0;
-      })
-      .map((project) => normalize(project.title).toLowerCase())
-      .filter((titleKey) => !fallbackProjectVideosByTitle[titleKey]);
-
-    return Array.from(new Set(titles));
-  }, [selectedProjects, fallbackProjectVideosByTitle]);
-
-  const missingPresentationProjectTitles = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          selectedProjects
-            .filter((project) => !project.presentation_id)
-            .map((project) => normalize(project.title).toLowerCase())
-            .filter(Boolean),
-        ),
-      ).filter((titleKey) => !apiProjectsByTitle[titleKey]),
-    [selectedProjects, apiProjectsByTitle],
-  );
-
-  useEffect(() => {
-    if (
-      !missingVideoProjectIds.length &&
-      !missingVideoProjectTitles.length &&
-      !missingPresentationProjectTitles.length
-    )
-      return;
-
-    let active = true;
-    fetchAllProjects()
-      .then(({ projects }) => {
-        if (!active) return;
-        const needed = new Set(missingVideoProjectIds);
-        const neededTitles = new Set(missingVideoProjectTitles);
-        const neededPresentationTitles = new Set(
-          missingPresentationProjectTitles,
-        );
-        const fetched: Record<number, string[]> = {};
-        const fetchedByTitle: Record<string, string[]> = {};
-
-        projects.forEach((project) => {
-          const videos = getProjectShowcaseVideos(project);
-          const videoList = videos.length
-            ? videos
-            : (() => {
-                const firstVideo = getProjectShowcaseVideo(project);
-                return firstVideo ? [firstVideo] : [];
-              })();
-
-          if (!videoList.length) return;
-
-          if (needed.has(project.id)) {
-            fetched[project.id] = videoList;
-          }
-
-          const titleKey = normalize(project.title).toLowerCase();
-          if (titleKey && neededPresentationTitles.has(titleKey)) {
-            // Stored below in apiProjectsByTitle for presentation code lookup.
-          }
-          if (titleKey && neededTitles.has(titleKey)) {
-            fetchedByTitle[titleKey] = videoList;
-          }
-        });
-
-        if (Object.keys(fetched).length) {
-          setFallbackProjectVideos((prev) => ({ ...prev, ...fetched }));
-        }
-        if (Object.keys(fetchedByTitle).length) {
-          setFallbackProjectVideosByTitle((prev) => ({
-            ...prev,
-            ...fetchedByTitle,
-          }));
-        }
-        setApiProjectsByTitle((prev) => {
-          const next = { ...prev };
-          projects.forEach((project) => {
-            const titleKey = normalize(project.title).toLowerCase();
-            if (titleKey) next[titleKey] = project;
-          });
-          return next;
-        });
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!active) return;
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    missingVideoProjectIds,
-    missingVideoProjectTitles,
-    missingPresentationProjectTitles,
-  ]);
 
   const saveLikedProjects = async (
     nextLikedProjects: LinkedProjectCard[],
@@ -582,10 +519,31 @@ export default function PublicCustomerLinkPage() {
     }
 
     const projectName = scheduleProject.project.title || "";
-    const projectTitleKey = normalize(projectName).toLowerCase();
-    const presentationId =
-      scheduleProject.project.presentation_id ||
-      getProjectPresentationId(apiProjectsByTitle[projectTitleKey]);
+    let presentationId = resolvePresentationId(
+      scheduleProject.project,
+      apiProjectsByTitle,
+    );
+
+    if (!presentationId) {
+      try {
+        const { projects } = await fetchAllProjects();
+        const nextProjectsByTitle = projects.reduce<Record<string, ApiProject>>(
+          (acc, project) => {
+            const titleKey = normalize(project.title).toLowerCase();
+            if (titleKey) acc[titleKey] = project;
+            return acc;
+          },
+          {},
+        );
+        setApiProjectsByTitle((prev) => ({ ...prev, ...nextProjectsByTitle }));
+        presentationId = resolvePresentationId(
+          scheduleProject.project,
+          nextProjectsByTitle,
+        );
+      } catch {
+        // The validation below will show the configured message.
+      }
+    }
 
     if (!presentationId) {
       setScheduleError(

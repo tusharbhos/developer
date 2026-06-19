@@ -270,10 +270,30 @@ export function getProjectDetailPath(project: ApiProject): string {
   return `/projects/${project.id}/${toProjectSlug(project)}`;
 }
 
+const ALL_PROJECTS_CACHE_TTL_MS = 10 * 60 * 1000;
+let allProjectsCache:
+  | { savedAt: number; value: { projects: ApiProject[]; total: number } }
+  | null = null;
+let allProjectsInFlight:
+  | Promise<{ projects: ApiProject[]; total: number }>
+  | null = null;
+
 export async function fetchAllProjects(): Promise<{
   projects: ApiProject[];
   total: number;
 }> {
+  if (
+    allProjectsCache &&
+    Date.now() - allProjectsCache.savedAt < ALL_PROJECTS_CACHE_TTL_MS
+  ) {
+    return allProjectsCache.value;
+  }
+
+  if (allProjectsInFlight) {
+    return allProjectsInFlight;
+  }
+
+  allProjectsInFlight = (async () => {
   let url: string | null = null;
   let expectedTotal = 0;
   const seen = new Set<number>();
@@ -297,7 +317,14 @@ export async function fetchAllProjects(): Promise<{
     url = data.next_page_url ?? null;
   } while (url);
 
-  return { projects: all, total: expectedTotal || all.length };
+    const value = { projects: all, total: expectedTotal || all.length };
+    allProjectsCache = { savedAt: Date.now(), value };
+    return value;
+  })().finally(() => {
+    allProjectsInFlight = null;
+  });
+
+  return allProjectsInFlight;
 }
 
 export async function fetchProjectsPage(
